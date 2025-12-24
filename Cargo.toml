@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["enact"]
+members = ["enact", "enact-winit", "example"]
 
 [workspace.dependencies]
 enact = { path = "enact" }

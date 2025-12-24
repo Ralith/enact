@@ -1,0 +1,4 @@
+direction = {
+  type = "dpad"
+  inputs = ["up", "left", "down", "right"]
+}
