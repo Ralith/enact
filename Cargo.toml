@@ -1,0 +1,6 @@
+[workspace]
+resolver = "3"
+members = ["enact"]
+
+[workspace.dependencies]
+enact = { path = "enact" }
