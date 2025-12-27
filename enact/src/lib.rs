@@ -11,6 +11,8 @@ mod type_id_map;
 
 use iddqd::BiHashMap;
 use rustc_hash::FxHashMap;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use type_id_map::TypeIdMap;
 
@@ -185,6 +187,23 @@ impl<I: Input> Default for InputBindings<I> {
             bindings: FxHashMap::default(),
         }
     }
+}
+
+/// Serialized form of a seat's bindings
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Config {
+    pub sources: Vec<SourceConfig>,
+}
+
+/// Serialized form of the bindings for a seat from a specific input source
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct SourceConfig {
+    #[cfg_attr(feature = "serde", serde(rename = "type"))]
+    pub ty: String,
+    #[cfg_attr(feature = "serde", serde(with = "tuple_vec_map"))]
+    pub bindings: Vec<(String, Vec<String>)>,
 }
 
 #[derive(Default)]
