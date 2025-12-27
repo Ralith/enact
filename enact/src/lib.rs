@@ -124,14 +124,14 @@ impl Bindings {
         let bindings = (&mut **bindings as &mut dyn Any)
             .downcast_mut::<InputBindings<I>>()
             .unwrap();
-        bindings.bindings.insert(input, action);
+        bindings.bindings.entry(input).or_default().push(action);
     }
 
     pub fn handle<I: Input>(&self, input: &I, data: I::Data, seat: &mut Seat) {
         let Some(actions) = self.actions.get(&TypeId::of::<I>()) else {
             return;
         };
-        let Some(&binding) = (&**actions as &dyn Any)
+        let Some(bindings) = (&**actions as &dyn Any)
             .downcast_ref::<InputBindings<I>>()
             .unwrap()
             .bindings
@@ -139,7 +139,9 @@ impl Bindings {
         else {
             return;
         };
-        seat.push(binding, data);
+        for &binding in bindings {
+            seat.push(binding, data.clone());
+        }
     }
 }
 
@@ -166,7 +168,7 @@ impl<I: Input> AnyInputBindings for InputBindings<I> {
 }
 
 struct InputBindings<I: Input> {
-    bindings: FxHashMap<I, Action<I::Data>>,
+    bindings: FxHashMap<I, Vec<Action<I::Data>>>,
 }
 
 impl<I: Input> Clone for InputBindings<I> {
