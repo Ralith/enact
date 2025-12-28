@@ -1,7 +1,6 @@
 use std::{collections::BTreeMap, fs};
 
 use anyhow::{Context as _, Result, anyhow};
-use rustc_hash::FxHashMap;
 use winit::{
     application::ApplicationHandler,
     window::{Window, WindowAttributes},
@@ -23,13 +22,15 @@ fn run() -> Result<()> {
         toml::from_str::<BTreeMap<String, Vec<enact_winit::Input>>>(&config).context("parsing")?;
 
     // TODO: Factor out
-    let mut bindings = FxHashMap::<enact_winit::Input, Vec<enact::ActionId>>::default();
+    let mut bindings = enact::Bindings::default();
     for (name, inputs) in config.into_iter() {
         let action = session
             .action_id(&name)
             .ok_or_else(|| anyhow!("unknown action {name}"))?;
         for input in inputs {
-            bindings.entry(input).or_default().push(action);
+            bindings
+                .bind(input.clone(), action, &session)
+                .with_context(|| format!("binding {input:?} to {name}"))?;
         }
     }
 
@@ -48,7 +49,7 @@ fn run() -> Result<()> {
 
 struct App {
     session: enact::Session,
-    bindings: FxHashMap<enact_winit::Input, Vec<enact::ActionId>>,
+    bindings: enact::Bindings,
     seat: enact::Seat,
     window: Option<Window>,
 }
@@ -68,11 +69,8 @@ impl ApplicationHandler for App {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        // TODO: Factor out
         for input in enact_winit::Input::from_window(&event) {
-            for &action in self.bindings.get(&input).map_or(&[][..], Vec::as_slice) {
-                input.apply_window(&self.session, &event, action, &mut self.seat);
-            }
+            input.apply_window(&event, &self.bindings, &mut self.seat);
         }
     }
 
@@ -83,9 +81,7 @@ impl ApplicationHandler for App {
         event: winit::event::DeviceEvent,
     ) {
         for input in enact_winit::Input::from_device(&event) {
-            for &action in self.bindings.get(&input).map_or(&[][..], Vec::as_slice) {
-                input.apply_device(&self.session, &event, action, &mut self.seat);
-            }
+            input.apply_device(&event, &self.bindings, &mut self.seat);
         }
     }
 }

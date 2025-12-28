@@ -1,5 +1,5 @@
 use std::{
-    any::{Any, TypeId},
+    any::{Any, TypeId, type_name},
     collections::VecDeque,
     fmt,
     hash::Hash,
@@ -67,6 +67,17 @@ impl Session {
     pub fn action_name(&self, id: ActionId) -> Option<&str> {
         Some(&self.actions.get1(&id)?.name)
     }
+
+    fn check(&self, id: ActionId, input: &impl Input) -> Result<(), TypeError> {
+        let act = self.actions.get1(&id).expect("no such action");
+        if act.ty == input.visit_type::<GetTypeId>() {
+            return Ok(());
+        }
+        return Err(TypeError {
+            expected: input.visit_type::<GetTypeName>(),
+            actual: act.ty_name,
+        });
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +91,8 @@ impl fmt::Display for TypeError {
         write!(f, "expected {}, got {}", self.expected, self.actual)
     }
 }
+
+impl std::error::Error for TypeError {}
 
 struct ActionDefinition {
     id: ActionId,
@@ -104,8 +117,33 @@ impl iddqd::BiHashItem for ActionDefinition {
     iddqd::bi_upcast!();
 }
 
+/// Identifies a unique bindable input, such as a specific button
 pub trait Input: Hash + Eq + Clone + 'static {
-    type Data: Clone;
+    /// Invoke `V::visit` on the type of data produced by `self` inputs
+    fn visit_type<V: InputTypeVisitor>(&self) -> V::Output;
+}
+
+pub trait InputTypeVisitor {
+    type Output;
+    fn visit<T: 'static>() -> Self::Output;
+}
+
+struct GetTypeId;
+
+impl InputTypeVisitor for GetTypeId {
+    type Output = TypeId;
+    fn visit<T: 'static>() -> TypeId {
+        TypeId::of::<T>()
+    }
+}
+
+struct GetTypeName;
+
+impl InputTypeVisitor for GetTypeName {
+    type Output = &'static str;
+    fn visit<T: 'static>() -> &'static str {
+        type_name::<T>()
+    }
 }
 
 #[derive(Default)]
@@ -118,7 +156,13 @@ impl Bindings {
         Self::default()
     }
 
-    pub fn bind<I: Input>(&mut self, input: I, action: Action<I::Data>) {
+    pub fn bind<I: Input>(
+        &mut self,
+        input: I,
+        action: ActionId,
+        session: &Session,
+    ) -> Result<(), TypeError> {
+        session.check(action, &input)?;
         let bindings = self
             .actions
             .entry(TypeId::of::<I>())
@@ -127,11 +171,25 @@ impl Bindings {
             .downcast_mut::<InputBindings<I>>()
             .unwrap();
         bindings.bindings.entry(input).or_default().push(action);
+        Ok(())
     }
 
-    pub fn handle<I: Input>(&self, input: &I, data: I::Data, seat: &mut Seat) {
+    pub fn handle<I: Input, T: Clone + 'static>(
+        &self,
+        input: &I,
+        data: T,
+        seat: &mut Seat,
+    ) -> Result<(), TypeError> {
+        if TypeId::of::<T>() != input.visit_type::<GetTypeId>() {
+            // `input` can't produce data of type `T`
+            return Err(TypeError {
+                expected: input.visit_type::<GetTypeName>(),
+                actual: type_name::<T>(),
+            });
+        }
         let Some(actions) = self.actions.get(&TypeId::of::<I>()) else {
-            return;
+            // No bindings exist for inputs of this type
+            return Ok(());
         };
         let Some(bindings) = (&**actions as &dyn Any)
             .downcast_ref::<InputBindings<I>>()
@@ -139,11 +197,13 @@ impl Bindings {
             .bindings
             .get(input)
         else {
-            return;
+            // No bindings exist for this specific input
+            return Ok(());
         };
-        for &binding in bindings {
-            seat.push(binding, data.clone());
+        for &action in bindings {
+            seat.push(action, data.clone());
         }
+        Ok(())
     }
 }
 
@@ -170,7 +230,7 @@ impl<I: Input> AnyInputBindings for InputBindings<I> {
 }
 
 struct InputBindings<I: Input> {
-    bindings: FxHashMap<I, Vec<Action<I::Data>>>,
+    bindings: FxHashMap<I, Vec<ActionId>>,
 }
 
 impl<I: Input> Clone for InputBindings<I> {
@@ -200,8 +260,10 @@ pub struct Config {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SourceConfig {
+    /// Identifies an input source in a configuration
     #[cfg_attr(feature = "serde", serde(rename = "type"))]
     pub ty: String,
+    /// Maps action names to inputs from this source
     #[cfg_attr(feature = "serde", serde(with = "tuple_vec_map"))]
     pub bindings: Vec<(String, Vec<String>)>,
 }
@@ -254,11 +316,11 @@ impl Seat {
         }
     }
 
-    pub fn push<T: 'static + Clone>(&mut self, action: Action<T>, value: T) {
-        if self.state.len() <= action.id.0 as usize {
-            self.state.resize_with(action.id.0 as usize + 1, || None);
+    fn push<T: 'static + Clone>(&mut self, action: ActionId, value: T) {
+        if self.state.len() <= action.0 as usize {
+            self.state.resize_with(action.0 as usize + 1, || None);
         }
-        match self.state[action.id.0 as usize] {
+        match self.state[action.0 as usize] {
             ref mut slot @ None => {
                 *slot = Some(Box::new(RwLock::new(ActionState {
                     queue: VecDeque::from_iter([value.clone()]),
@@ -268,6 +330,10 @@ impl Seat {
             Some(ref mut state) => {
                 let mut state = state.write().unwrap();
                 let state = &mut *state as &mut dyn Any;
+                // We know `T` is correct because this is called by
+                // `Bindings::handle`, which checks input/value type consistency
+                // for input/action bindings that are checked for consistency at
+                // bind time
                 let state = state
                     .downcast_mut::<ActionState<T>>()
                     .expect("type mismatch");

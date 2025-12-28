@@ -1,4 +1,3 @@
-use enact::{ActionId, Seat, Session};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use winit::{
@@ -64,31 +63,28 @@ impl Input {
     /// Propagate data from `event` bound via `self` to `action` for `seat`
     pub fn apply_window(
         &self,
-        session: &Session,
         event: &WindowEvent,
-        action: ActionId,
-        seat: &mut Seat,
+        bindings: &enact::Bindings,
+        seat: &mut enact::Seat,
     ) {
         match event {
             WindowEvent::KeyboardInput { event, .. } if !event.repeat => match *self {
                 Input::PhysicalKeyHeld(_) => {
-                    let action = session.action::<bool>(action).unwrap();
-                    seat.push(action, event.state.is_pressed());
+                    bindings
+                        .handle(self, event.state.is_pressed(), seat)
+                        .unwrap();
                 }
                 Input::PhysicalKeyPressed(_) if event.state.is_pressed() => {
-                    let action = session.action::<()>(action).unwrap();
-                    seat.push(action, ());
+                    bindings.handle(self, (), seat).unwrap();
                 }
                 _ => {}
             },
             WindowEvent::MouseInput { state, .. } => match *self {
                 Input::MouseButtonHeld(_) => {
-                    let action = session.action::<bool>(action).unwrap();
-                    seat.push(action, state.is_pressed());
+                    bindings.handle(self, state.is_pressed(), seat).unwrap();
                 }
                 Input::MouseButtonPressed(_) => {
-                    let action = session.action::<()>(action).unwrap();
-                    seat.push(action, ());
+                    bindings.handle(self, (), seat).unwrap();
                 }
                 _ => {}
             },
@@ -98,20 +94,30 @@ impl Input {
 
     pub fn apply_device(
         &self,
-        session: &Session,
         event: &DeviceEvent,
-        action: ActionId,
-        seat: &mut Seat,
+        bindings: &enact::Bindings,
+        seat: &mut enact::Seat,
     ) {
         match event {
             DeviceEvent::MouseMotion { delta: (x, y) } => match *self {
                 Input::MouseMotion => {
-                    let action = session.action::<mint::Vector2<f64>>(action).unwrap();
-                    seat.push(action, [*x, *y].into());
+                    bindings
+                        .handle(self, mint::Vector2::<f64>::from([*x, *y]), seat)
+                        .unwrap();
                 }
                 _ => {}
             },
             _ => {}
+        }
+    }
+}
+
+impl enact::Input for Input {
+    fn visit_type<V: enact::InputTypeVisitor>(&self) -> V::Output {
+        match *self {
+            Input::PhysicalKeyHeld(_) | Input::MouseButtonHeld(_) => V::visit::<bool>(),
+            Input::PhysicalKeyPressed(_) | Input::MouseButtonPressed(_) => V::visit::<()>(),
+            Input::MouseMotion => V::visit::<mint::Vector2<f64>>(),
         }
     }
 }
