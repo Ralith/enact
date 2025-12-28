@@ -69,9 +69,7 @@ impl ApplicationHandler for App {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        for input in enact_winit::Input::from_window(&event) {
-            input.apply_window(&event, &self.bindings, &mut self.seat);
-        }
+        enact_winit::handle(&event, &self.bindings, &mut self.seat);
     }
 
     fn device_event(
@@ -80,8 +78,6 @@ impl ApplicationHandler for App {
         device_id: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) {
-        for input in enact_winit::Input::from_device(&event) {
-            input.apply_device(&event, &self.bindings, &mut self.seat);
-        }
+        enact_winit::handle(&event, &self.bindings, &mut self.seat);
     }
 }

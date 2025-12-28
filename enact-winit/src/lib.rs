@@ -60,7 +60,7 @@ impl Input {
     }
 
     /// Propagate data from `event` bound via `self` to `action` for `seat`
-    pub fn apply_window(
+    fn apply_window(
         &self,
         event: &WindowEvent,
         bindings: &enact::Bindings,
@@ -91,7 +91,7 @@ impl Input {
         }
     }
 
-    pub fn apply_device(
+    fn apply_device(
         &self,
         event: &DeviceEvent,
         bindings: &enact::Bindings,
@@ -153,6 +153,30 @@ impl InputType for mint::Vector2<f64> {
         match input {
             Input::MouseMotion => Some(input),
             _ => None,
+        }
+    }
+}
+
+pub fn handle<E: Event>(event: &E, bindings: &enact::Bindings, seat: &mut enact::Seat) {
+    event.handle(bindings, seat);
+}
+
+pub trait Event {
+    fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat);
+}
+
+impl Event for WindowEvent {
+    fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat) {
+        for input in Input::from_window(self) {
+            input.apply_window(self, bindings, seat);
+        }
+    }
+}
+
+impl Event for DeviceEvent {
+    fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat) {
+        for input in Input::from_device(self) {
+            input.apply_device(self, bindings, seat);
         }
     }
 }
