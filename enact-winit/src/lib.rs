@@ -1,15 +1,14 @@
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use winit::{
     event::{DeviceEvent, ElementState, KeyEvent, MouseButton, WindowEvent},
     keyboard::PhysicalKey,
 };
 
 /// Identifies a source of input data
-// TODO: Handwrite better serde impl, winit's sucks
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
 pub enum Input {
     PhysicalKeyHeld(PhysicalKey),
     MouseButtonHeld(MouseButton),
@@ -113,12 +112,17 @@ impl Input {
 }
 
 impl enact::Input for Input {
+    const NAME: &'static str = "winit";
     fn visit_type<V: enact::InputTypeVisitor>(&self) -> V::Output {
         match *self {
             Input::PhysicalKeyHeld(_) | Input::MouseButtonHeld(_) => V::visit::<bool>(),
             Input::PhysicalKeyPressed(_) | Input::MouseButtonPressed(_) => V::visit::<()>(),
             Input::MouseMotion => V::visit::<mint::Vector2<f64>>(),
         }
+    }
+
+    fn to_string(&self) -> String {
+        format!("{self:?}")
     }
 }
 

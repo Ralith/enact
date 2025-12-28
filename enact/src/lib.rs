@@ -119,8 +119,10 @@ impl iddqd::BiHashItem for ActionDefinition {
 
 /// Identifies a unique bindable input, such as a specific button
 pub trait Input: Hash + Eq + Clone + 'static {
+    const NAME: &'static str;
     /// Invoke `V::visit` on the type of data produced by `self` inputs
     fn visit_type<V: InputTypeVisitor>(&self) -> V::Output;
+    fn to_string(&self) -> String;
 }
 
 pub trait InputTypeVisitor {
@@ -154,6 +156,16 @@ pub struct Bindings {
 impl Bindings {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn save(&self, session: &Session) -> Config {
+        Config {
+            sources: self
+                .actions
+                .values()
+                .map(|value| value.save(session))
+                .collect(),
+        }
     }
 
     pub fn bind<I: Input>(
@@ -220,10 +232,32 @@ impl Clone for Bindings {
 }
 
 trait AnyInputBindings: Any {
+    fn save(&self, session: &Session) -> SourceConfig;
     fn clone(&self) -> Box<dyn AnyInputBindings>;
 }
 
 impl<I: Input> AnyInputBindings for InputBindings<I> {
+    fn save(&self, session: &Session) -> SourceConfig {
+        let mut bindings = FxHashMap::<String, Vec<String>>::default();
+        // Transpose
+        for (input, actions) in &self.bindings {
+            for &action in actions {
+                let name = session.action_name(action).unwrap();
+                if !bindings.contains_key(name) {
+                    bindings.insert(name.to_owned(), Vec::new());
+                }
+                bindings.get_mut(name).unwrap().push(input.to_string());
+            }
+        }
+        let mut bindings = bindings.into_iter().collect::<Vec<_>>();
+        // Sort for readability
+        // Future work: preserve loaded order?
+        bindings.sort_unstable_by(|x, y| x.0.cmp(&y.0));
+        SourceConfig {
+            ty: I::NAME.to_owned(),
+            bindings,
+        }
+    }
     fn clone(&self) -> Box<dyn AnyInputBindings> {
         Box::new(Clone::clone(self))
     }
@@ -250,7 +284,7 @@ impl<I: Input> Default for InputBindings<I> {
 }
 
 /// Serialized form of a seat's bindings
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Config {
     pub sources: Vec<SourceConfig>,
