@@ -68,7 +68,7 @@ impl Session {
         Some(&self.actions.get1(&id)?.name)
     }
 
-    fn check(&self, id: ActionId, input: &impl Input) -> Result<(), TypeError> {
+    pub fn check_type<I: Input>(&self, id: ActionId, input: &I) -> Result<(), TypeError> {
         let act = self.actions.get1(&id).expect("no such action");
         if act.ty == input.visit_type::<GetTypeId>() {
             return Ok(());
@@ -125,6 +125,11 @@ pub trait Input: Hash + Eq + Clone + 'static {
     fn to_string(&self) -> String;
 }
 
+/// Returns `Some` iff `input` produces events of type `T`
+pub fn has_type<T: 'static, I: Input>(input: &I) -> bool {
+    input.visit_type::<GetTypeId>() == TypeId::of::<T>()
+}
+
 pub trait InputTypeVisitor {
     type Output;
     fn visit<T: 'static>() -> Self::Output;
@@ -174,7 +179,7 @@ impl Bindings {
         action: ActionId,
         session: &Session,
     ) -> Result<(), TypeError> {
-        session.check(action, &input)?;
+        session.check_type(action, &input)?;
         let bindings = self
             .actions
             .entry(TypeId::of::<I>())

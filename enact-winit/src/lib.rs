@@ -23,11 +23,6 @@ impl Input {
         event.to_inputs()
     }
 
-    /// Returns `Some` iff `self` can be expressed as an input of type `T`
-    pub fn filter<T: InputType>(self) -> Option<Self> {
-        T::filter_input(self)
-    }
-
     /// Propagate data from `event` bound via `self` to `action` for `seat`
     fn apply_window(
         &self,
@@ -92,37 +87,6 @@ impl enact::Input for Input {
 
     fn to_string(&self) -> String {
         format!("{self:?}")
-    }
-}
-
-pub trait InputType {
-    fn filter_input(input: Input) -> Option<Input>;
-}
-
-impl InputType for () {
-    fn filter_input(input: Input) -> Option<Input> {
-        match input {
-            Input::PhysicalKeyPressed(_) | Input::MouseButtonPressed(_) => Some(input),
-            _ => None,
-        }
-    }
-}
-
-impl InputType for bool {
-    fn filter_input(input: Input) -> Option<Input> {
-        match input {
-            Input::PhysicalKeyHeld(_) | Input::MouseButtonHeld(_) => Some(input),
-            _ => None,
-        }
-    }
-}
-
-impl InputType for mint::Vector2<f64> {
-    fn filter_input(input: Input) -> Option<Input> {
-        match input {
-            Input::MouseMotion => Some(input),
-            _ => None,
-        }
     }
 }
 
