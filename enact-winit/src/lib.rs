@@ -16,6 +16,11 @@ pub enum Input {
 
 impl Input {
     /// Look up the [`Input`]s produced by a winit event
+    ///
+    /// Useful for building binding UIs. Call [`enact::Session::check_type`] to
+    /// filter out inputs which are inappropriate for a specific action.
+    ///
+    /// Convenience wrapper for [`Event::to_inputs`]
     pub fn from_event<E: Event>(event: &E) -> Vec<Self> {
         event.to_inputs()
     }
@@ -23,6 +28,7 @@ impl Input {
 
 impl enact::Input for Input {
     const NAME: &'static str = "winit";
+
     fn visit_type<V: enact::InputTypeVisitor>(&self) -> V::Output {
         match *self {
             Input::PhysicalKeyHeld(_) | Input::MouseButtonHeld(_) => V::visit::<bool>(),
@@ -155,12 +161,20 @@ keycodes! {
     KeyD => "d",
 }
 
+/// Update action states in `seat` to account for any inputs in `event`
+/// according to `bindings`
+///
+/// Convenience wrapper for [`Event::handle`]
 pub fn handle<E: Event>(event: &E, bindings: &enact::Bindings, seat: &mut enact::Seat) {
     event.handle(bindings, seat);
 }
 
+/// Winit events that might contain supported inputs
 pub trait Event {
+    /// See [`handle`]
     fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat);
+
+    /// See [`Input::from_event`]
     fn to_inputs(&self) -> Vec<Input>;
 }
 

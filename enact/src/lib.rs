@@ -16,16 +16,25 @@ use serde::{Deserialize, Serialize};
 
 use type_id_map::TypeIdMap;
 
+/// A collection of [`Action`] definitions
 #[derive(Default)]
 pub struct Session {
     actions: BiHashMap<ActionDefinition, rustc_hash::FxBuildHasher>,
 }
 
 impl Session {
+    /// Create a session with no actions
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Create an action with the unique identifier `name`
+    ///
+    /// `name` will be used to identify the action in config files and
+    /// diagnostics, so it should be terse but human-readable, like a variable
+    /// name. It should not be confused with localized text presented in a GUI.
+    ///
+    /// See [`Action`] for discussion of action design.
     pub fn create_action<T: 'static>(&mut self, name: &str) -> Action<T> {
         let id = ActionId(u32::try_from(self.actions.len()).expect("too many actions"));
         if self
@@ -46,6 +55,9 @@ impl Session {
         }
     }
 
+    /// Get the a typed [`Action`] handle associated with an [`ActionId`]
+    ///
+    /// Panics if `id` was not defined in this [`Session`]
     pub fn action<T: 'static>(&self, id: ActionId) -> Result<Action<T>, TypeError> {
         let act = self.actions.get1(&id).expect("no such action");
         if act.ty != TypeId::of::<T>() {
@@ -60,14 +72,25 @@ impl Session {
         })
     }
 
+    /// Get the [`ActionId`] identified by `name`, if any
     pub fn action_id(&self, name: &str) -> Option<ActionId> {
         Some(self.actions.get2(name)?.id)
     }
 
+    /// Get the name of the action associated with an [`ActionId`]
+    ///
+    /// Panics if `id` was not defined in this [`Session`]
     pub fn action_name(&self, id: ActionId) -> &str {
         &self.actions.get1(&id).unwrap().name
     }
 
+    /// Check whether an [`Input`] can be bound to the action associated with an
+    /// [`ActionId`]
+    ///
+    /// Inputs can only be bound to actions if they produce events of the same
+    /// Rust type that the action was created with.
+    ///
+    /// Panics if `id` was not defiend in this [`Session`]
     pub fn check_type<I: Input>(&self, id: ActionId, input: &I) -> Result<(), TypeError> {
         let act = self.actions.get1(&id).expect("no such action");
         if act.ty == input.visit_type::<GetTypeId>() {
@@ -80,6 +103,8 @@ impl Session {
     }
 }
 
+/// A mismatch between the type of an input and an action, or between the type
+/// of some data and the type described by an input.
 #[derive(Debug, Clone)]
 pub struct TypeError {
     expected: &'static str,
@@ -119,6 +144,11 @@ impl iddqd::BiHashItem for ActionDefinition {
 
 /// Identifies a unique bindable input, such as a specific button
 pub trait Input: Hash + Eq + Clone + 'static {
+    /// A globally unique human-readable identifier for this type of input
+    ///
+    /// Used in [`Config`] to identify each input type. A single
+    /// [`BindingsFactory`] cannot support multiple input types with the same
+    /// name.
     const NAME: &'static str;
 
     /// Invoke `V::visit` on the type of data produced by `self` inputs
@@ -141,6 +171,8 @@ pub fn has_type<T: 'static, I: Input>(input: &I) -> bool {
     input.visit_type::<GetTypeId>() == TypeId::of::<T>()
 }
 
+/// Helper to inspect the type of data associated with an [`Input`] via
+/// [`Input::visit_type`]
 pub trait InputTypeVisitor {
     type Output;
     fn visit<T: 'static>() -> Self::Output;
@@ -164,6 +196,7 @@ impl InputTypeVisitor for GetTypeName {
     }
 }
 
+/// Parses bindings for arbitrary input types from serialized form
 #[derive(Clone, Default)]
 pub struct BindingsFactory {
     builders: FxHashMap<
@@ -180,6 +213,7 @@ impl BindingsFactory {
         Self::default()
     }
 
+    /// Enable loading configurations that include inputs of type `I`
     pub fn register<I: Input>(&mut self) {
         self.builders.insert(
             I::NAME.to_string(),
@@ -225,6 +259,15 @@ impl BindingsFactory {
         );
     }
 
+    /// Load a serialized configuration
+    ///
+    /// First, call [`register`](Self::register) to enable support for any
+    /// desired input sources, and create all desired actions in the
+    /// [`Session`].
+    ///
+    /// Malformed inputs will be recorded in the returned [`LoadError`]s, but
+    /// will not terminate parsing: all well-formed bindings will be included in
+    /// the resulting [`Bindings`].
     pub fn load(&self, session: &Session, config: &Config) -> (Bindings, Vec<LoadError>) {
         let mut bindings = Bindings::new();
         let mut errors = Vec::new();
@@ -244,17 +287,18 @@ impl BindingsFactory {
     }
 }
 
+/// Reasons why soem part of a [`Config`] might not be loaded
 #[derive(Debug, Clone)]
 pub enum LoadError {
-    UnknownSource {
-        name: String,
-    },
-    UnknownAction {
-        name: String,
-    },
-    UnknownInput {
-        input: String,
-    },
+    /// This type of inputs did not match any type previously supplied to
+    /// [`BindingsFactory::register`]
+    UnknownSource { name: String },
+    /// The action name was not defined in the [`Session`]
+    UnknownAction { name: String },
+    /// A specific input binding was not recognized
+    UnknownInput { input: String },
+    /// A specific input binding cannot produce data of the type expected by a
+    /// specific action
     TypeError {
         action_name: String,
         input: String,
@@ -263,16 +307,25 @@ pub enum LoadError {
     },
 }
 
+/// A mapping of inputs to actions
+///
+/// [`Bindings`] are always defined with respect to the actions defined in a
+/// specific [`Session`]. Never mix actions from multiple [`Session`]s.
 #[derive(Default)]
 pub struct Bindings {
     actions: TypeIdMap<Box<dyn AnyInputBindings>>,
 }
 
 impl Bindings {
+    /// Create an empty set of bindings
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Convert the current set of bindings into serializable form
+    ///
+    /// `session` must be the same one used to create all [`Action`]s described
+    /// in these bindings.
     pub fn save(&self, session: &Session) -> Config {
         Config {
             sources: self
@@ -283,6 +336,10 @@ impl Bindings {
         }
     }
 
+    /// Introduce a new binding from `input` to `action`
+    ///
+    /// All [`Action`]s in a set of bindings must be created from the same
+    /// [`Session`].
     pub fn bind<I: Input>(
         &mut self,
         input: I,
@@ -301,6 +358,11 @@ impl Bindings {
         Ok(())
     }
 
+    /// Change the state of `input` to `data` in `seat`
+    ///
+    /// Most applications do not need to call this directly. Instead, call the
+    /// handler responsible for processing foreign events provided by the crate
+    /// in which the `Input` type is defined.
     pub fn handle<I: Input, T: Clone + 'static>(
         &self,
         input: &I,
@@ -399,35 +461,45 @@ impl<I: Input> Default for InputBindings<I> {
     }
 }
 
-/// Serialized form of a seat's bindings
+/// Serialized form of [`Bindings`]
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Config {
     pub sources: Vec<SourceConfig>,
 }
 
-/// Serialized form of the bindings for a seat from a specific input source
+/// Subset of serialized [`Bindings`] associated with a specific input source
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SourceConfig {
-    /// Identifies an input source in a configuration
+    /// The [`Input::NAME`] of the input source that should interpret these
+    /// bindings
     #[cfg_attr(feature = "serde", serde(rename = "type"))]
     pub ty: String,
-    /// Maps action names to inputs from this source
+    /// Maps action names to inputs from this input source
     #[cfg_attr(feature = "serde", serde(with = "tuple_vec_map"))]
     pub bindings: Vec<(String, Vec<String>)>,
 }
 
+/// Represents the current state and recent history of any active [`Action`]s
+///
+/// Applications may call [`poll`](Self::poll) to observe changes to action
+/// state, or [`get`](Self::get) to sample the latest state. In either case,
+/// [`flush`](Self::flush) must be called regularly to discard any records of
+/// changes to action state which were not consumed by a [`poll`](Self::poll)
+/// call.
 #[derive(Default)]
 pub struct Seat {
     state: Vec<Option<Box<RwLock<dyn AnyState>>>>,
 }
 
 impl Seat {
+    /// Create a seat with no action state
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Consume the next state change affecting `action`, if any
     pub fn poll<T: 'static>(&self, action: &Action<T>) -> Option<T> {
         let mut state = self
             .state
@@ -443,6 +515,7 @@ impl Seat {
             .pop_front()
     }
 
+    /// Observe the current state of `action`, if any
     pub fn get<T: 'static + Clone>(&self, action: Action<T>) -> Option<T> {
         let state = self
             .state
@@ -460,12 +533,21 @@ impl Seat {
         )
     }
 
+    /// Discard any state changes not consumed by calls to [`poll`](Self::poll)
+    ///
+    /// This must be called regularly (e.g. after running all input processing
+    /// for a frame) to ensure that memory use does not grow without bound.
     pub fn flush(&mut self) {
         for state in self.state.iter().filter_map(Option::as_ref) {
             state.write().unwrap().flush();
         }
     }
 
+    /// Update the state of `action` to `T`
+    ///
+    /// Most applications do not need to call this directly. It is usually
+    /// called automatically by [`Bindings::handle`], which is in turn usually
+    /// called by external event handlers.
     pub fn push<T: 'static + Clone>(
         &mut self,
         action: ActionId,
@@ -518,6 +600,21 @@ impl<T: 'static> AnyState for ActionState<T> {
     }
 }
 
+/// A high-level semantic control used by an application
+///
+/// Actions should represent the control information your application cares
+/// about. The inner type `T` is the type of data that can be supplied through
+/// the action, i.e. its state.
+///
+/// Typical actions might include:
+/// - "jump" and "shoot", of type `Action<()>`, representing instantaneous
+///   events
+/// - "forward"/"left"/"back"/"right" of type `Action<bool>` representing
+///   whether a button is currently held
+///
+/// Actions should usually be hard-coded into an application, and constructed
+/// early, before configuration parsing. Actions are only defined in the scope
+/// of the [`Session`] used to create them.
 pub struct Action<T> {
     id: ActionId,
     _marker: PhantomData<T>,
@@ -539,6 +636,7 @@ impl<T> Clone for Action<T> {
     }
 }
 
+/// Untyped handle to an [`Action`] in some [`Session`]
 // TODO: Nonzero
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ActionId(u32);
