@@ -18,40 +18,9 @@ pub enum Input {
 }
 
 impl Input {
-    /// Look up the [`Input`]s produced by a [`WindowEvent`]
-    pub fn from_window(event: &WindowEvent) -> Vec<Self> {
-        match *event {
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        physical_key,
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                is_synthetic: false,
-                ..
-            } => vec![
-                Input::PhysicalKeyPressed(physical_key),
-                Input::PhysicalKeyHeld(physical_key),
-            ],
-            WindowEvent::MouseInput {
-                button,
-                state: ElementState::Pressed,
-                ..
-            } => vec![
-                Input::MouseButtonPressed(button),
-                Input::MouseButtonHeld(button),
-            ],
-            _ => vec![],
-        }
-    }
-
-    /// Look up the [`Input`]s produced by a [`DeviceEvent`]
-    pub fn from_device(event: &DeviceEvent) -> Vec<Self> {
-        match *event {
-            DeviceEvent::MouseMotion { .. } => vec![Input::MouseMotion],
-            _ => vec![],
-        }
+    /// Look up the [`Input`]s produced by a winit event
+    pub fn from_event<E: Event>(event: &E) -> Vec<Self> {
+        event.to_inputs()
     }
 
     /// Returns `Some` iff `self` can be expressed as an input of type `T`
@@ -163,20 +132,55 @@ pub fn handle<E: Event>(event: &E, bindings: &enact::Bindings, seat: &mut enact:
 
 pub trait Event {
     fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat);
+    fn to_inputs(&self) -> Vec<Input>;
 }
 
 impl Event for WindowEvent {
     fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat) {
-        for input in Input::from_window(self) {
+        for input in self.to_inputs() {
             input.apply_window(self, bindings, seat);
+        }
+    }
+
+    fn to_inputs(&self) -> Vec<Input> {
+        match *self {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key,
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                is_synthetic: false,
+                ..
+            } => vec![
+                Input::PhysicalKeyPressed(physical_key),
+                Input::PhysicalKeyHeld(physical_key),
+            ],
+            WindowEvent::MouseInput {
+                button,
+                state: ElementState::Pressed,
+                ..
+            } => vec![
+                Input::MouseButtonPressed(button),
+                Input::MouseButtonHeld(button),
+            ],
+            _ => vec![],
         }
     }
 }
 
 impl Event for DeviceEvent {
     fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat) {
-        for input in Input::from_device(self) {
+        for input in self.to_inputs() {
             input.apply_device(self, bindings, seat);
+        }
+    }
+
+    fn to_inputs(&self) -> Vec<Input> {
+        match *self {
+            DeviceEvent::MouseMotion { .. } => vec![Input::MouseMotion],
+            _ => vec![],
         }
     }
 }
@@ -188,6 +192,15 @@ impl<T> Event for winit::event::Event<T> {
             WindowEvent { ref event, .. } => handle(event, bindings, seat),
             DeviceEvent { ref event, .. } => handle(event, bindings, seat),
             _ => {}
+        }
+    }
+
+    fn to_inputs(&self) -> Vec<Input> {
+        use winit::event::Event::*;
+        match *self {
+            WindowEvent { ref event, .. } => event.to_inputs(),
+            DeviceEvent { ref event, .. } => event.to_inputs(),
+            _ => vec![],
         }
     }
 }
