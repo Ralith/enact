@@ -108,6 +108,12 @@ impl FilterGraph {
         }
     }
 
+    /// Add a filter to the graph
+    pub fn insert<F: Filter>(&mut self, filter: F) {
+        // TODO: Toposort
+        self.filters.push(Box::new(filter));
+    }
+
     /// Update actions in `seat` with the filtered state
     pub fn update(&self, seat: &mut Seat) {
         for filter in &self.filters {
@@ -212,6 +218,39 @@ pub struct DPad {
     left: Action<bool>,
     down: Action<bool>,
     right: Action<bool>,
+}
+
+impl DPad {
+    pub fn new(
+        session: &mut Session,
+        target: Action<mint::Vector2<f64>>,
+    ) -> Result<Self, DuplicateAction> {
+        let [up, left, down, right] = DPAD_DIRS.map(|dir| {
+            let o = session.action_name(target.id());
+            session.create_action(&format!("{o}.{dir}"))
+        });
+
+        Ok(Self {
+            target,
+            up: up?,
+            left: left?,
+            down: down?,
+            right: right?,
+        })
+    }
+
+    pub fn up(&self) -> Action<bool> {
+        self.up
+    }
+    pub fn left(&self) -> Action<bool> {
+        self.left
+    }
+    pub fn down(&self) -> Action<bool> {
+        self.down
+    }
+    pub fn right(&self) -> Action<bool> {
+        self.right
+    }
 }
 
 impl Filter for DPad {
