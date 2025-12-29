@@ -22,57 +22,6 @@ impl Input {
     pub fn from_event<E: Event>(event: &E) -> Vec<Self> {
         event.to_inputs()
     }
-
-    /// Propagate data from `event` bound via `self` to `action` for `seat`
-    fn apply_window(
-        &self,
-        event: &WindowEvent,
-        bindings: &enact::Bindings,
-        seat: &mut enact::Seat,
-    ) {
-        match event {
-            WindowEvent::KeyboardInput { event, .. } if !event.repeat => match *self {
-                Input::PhysicalKeyHeld(_) => {
-                    bindings
-                        .handle(self, event.state.is_pressed(), seat)
-                        .unwrap();
-                }
-                Input::PhysicalKeyPressed(_) if event.state.is_pressed() => {
-                    bindings.handle(self, (), seat).unwrap();
-                }
-                _ => {}
-            },
-            WindowEvent::MouseInput { state, .. } => match *self {
-                Input::MouseButtonHeld(_) => {
-                    bindings.handle(self, state.is_pressed(), seat).unwrap();
-                }
-                Input::MouseButtonPressed(_) => {
-                    bindings.handle(self, (), seat).unwrap();
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-    }
-
-    fn apply_device(
-        &self,
-        event: &DeviceEvent,
-        bindings: &enact::Bindings,
-        seat: &mut enact::Seat,
-    ) {
-        match event {
-            DeviceEvent::MouseMotion { delta: (x, y) } => match *self {
-                Input::MouseMotion => {
-                    bindings
-                        .handle(self, mint::Vector2::<f64>::from([*x, *y]), seat)
-                        .unwrap();
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-    }
 }
 
 impl enact::Input for Input {
@@ -101,8 +50,29 @@ pub trait Event {
 
 impl Event for WindowEvent {
     fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat) {
-        for input in self.to_inputs() {
-            input.apply_window(self, bindings, seat);
+        match *self {
+            WindowEvent::KeyboardInput { ref event, .. } if !event.repeat => {
+                bindings
+                    .handle(
+                        &Input::PhysicalKeyHeld(event.physical_key),
+                        event.state.is_pressed(),
+                        seat,
+                    )
+                    .unwrap();
+                bindings
+                    .handle(&Input::PhysicalKeyPressed(event.physical_key), (), seat)
+                    .unwrap();
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                bindings
+                    .handle(&Input::MouseButtonHeld(button), state.is_pressed(), seat)
+                    .unwrap();
+
+                bindings
+                    .handle(&Input::MouseButtonPressed(button), (), seat)
+                    .unwrap();
+            }
+            _ => {}
         }
     }
 
@@ -136,8 +106,17 @@ impl Event for WindowEvent {
 
 impl Event for DeviceEvent {
     fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat) {
-        for input in self.to_inputs() {
-            input.apply_device(self, bindings, seat);
+        match *self {
+            DeviceEvent::MouseMotion { delta: (x, y) } => {
+                bindings
+                    .handle(
+                        &Input::MouseMotion,
+                        mint::Vector2::<f64>::from([x, y]),
+                        seat,
+                    )
+                    .unwrap();
+            }
+            _ => {}
         }
     }
 
