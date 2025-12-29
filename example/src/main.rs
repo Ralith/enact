@@ -78,7 +78,7 @@ impl Actions {
                 println!("{}", session.action_name(action.id()));
             }
         }
-        if seat.poll(&self.jump).is_some() {
+        if seat.poll(self.jump).is_some() {
             println!("jump");
         }
     }

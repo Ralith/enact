@@ -500,7 +500,7 @@ impl Seat {
     }
 
     /// Consume the next state change affecting `action`, if any
-    pub fn poll<T: 'static>(&self, action: &Action<T>) -> Option<T> {
+    pub fn poll<T: 'static>(&self, action: Action<T>) -> Option<T> {
         let mut state = self
             .state
             .get(action.id.0 as usize)?
@@ -613,8 +613,11 @@ impl<T: 'static> AnyState for ActionState<T> {
 ///   whether a button is currently held
 ///
 /// Actions should usually be hard-coded into an application, and constructed
-/// early, before configuration parsing. Actions are only defined in the scope
-/// of the [`Session`] used to create them.
+/// early, before configuration parsing.
+///
+/// An [`Action`] is a lightweight handle that refers to state in the
+/// [`Session`] used to create it. It must never be used with any other
+/// [`Session`].
 pub struct Action<T> {
     id: ActionId,
     _marker: PhantomData<T>,
