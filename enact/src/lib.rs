@@ -213,7 +213,8 @@ impl Bindings {
             return Ok(());
         };
         for &action in bindings {
-            seat.push(action, data.clone());
+            // Guaranteed to succeed because we check types at bind time
+            seat.push(action, data.clone()).unwrap();
         }
         Ok(())
     }
@@ -350,7 +351,11 @@ impl Seat {
         }
     }
 
-    fn push<T: 'static + Clone>(&mut self, action: ActionId, value: T) {
+    pub fn push<T: 'static + Clone>(
+        &mut self,
+        action: ActionId,
+        value: T,
+    ) -> Result<(), TypeError> {
         if self.state.len() <= action.0 as usize {
             self.state.resize_with(action.0 as usize + 1, || None);
         }
@@ -363,23 +368,24 @@ impl Seat {
             }
             Some(ref mut state) => {
                 let mut state = state.write().unwrap();
-                let state = &mut *state as &mut dyn Any;
-                // We know `T` is correct because this is called by
-                // `Bindings::handle`, which checks input/value type consistency
-                // for input/action bindings that are checked for consistency at
-                // bind time
-                let state = state
-                    .downcast_mut::<ActionState<T>>()
-                    .expect("type mismatch");
+                let Some(state) = (&mut *state as &mut dyn Any).downcast_mut::<ActionState<T>>()
+                else {
+                    return Err(TypeError {
+                        expected: state.data_type_name(),
+                        actual: type_name::<T>(),
+                    });
+                };
                 state.latest.clone_from(&value);
                 state.queue.push_back(value);
             }
         }
+        Ok(())
     }
 }
 
 trait AnyState: Any {
     fn flush(&mut self);
+    fn data_type_name(&self) -> &'static str;
 }
 
 struct ActionState<T> {
@@ -390,6 +396,10 @@ struct ActionState<T> {
 impl<T: 'static> AnyState for ActionState<T> {
     fn flush(&mut self) {
         self.queue.clear();
+    }
+
+    fn data_type_name(&self) -> &'static str {
+        type_name::<T>()
     }
 }
 
