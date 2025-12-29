@@ -1,4 +1,3 @@
-direction = {
-  type = "dpad"
-  inputs = ["up", "left", "down", "right"]
-}
+[[filters]]
+type = "dpad"
+targets = ["direction"]

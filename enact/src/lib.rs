@@ -7,6 +7,7 @@ use std::{
     sync::RwLock,
 };
 
+mod graph;
 mod type_id_map;
 
 use iddqd::BiHashMap;
@@ -14,6 +15,7 @@ use rustc_hash::FxHashMap;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+pub use graph::*;
 use type_id_map::TypeIdMap;
 
 /// A collection of [`Action`] definitions

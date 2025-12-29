@@ -362,6 +362,7 @@ name = "enact"
 version = "0.1.0"
 dependencies = [
  "iddqd",
+ "mint",
  "rustc-hash",
  "serde",
  "serde-tuple-vec-map",
