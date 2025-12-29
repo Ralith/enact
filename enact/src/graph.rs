@@ -6,10 +6,7 @@ use crate::{Action, Seat, Session, TypeError};
 
 /// Parses arbitrary filter graph configurations from serialized form
 pub struct FilterGraphFactory {
-    builders: FxHashMap<
-        &'static str,
-        fn(&mut Session, &FilterConfig) -> Result<Box<dyn AnyFilter>, FilterLoadError>,
-    >,
+    builders: FxHashMap<&'static str, FilterBuilder>,
 }
 
 impl FilterGraphFactory {
@@ -29,8 +26,13 @@ impl FilterGraphFactory {
 
     /// Enable loading filters of type `F`
     pub fn register<F: Filter>(&mut self) {
-        self.builders
-            .insert(F::NAME, |session, cfg| Ok(Box::new(F::load(session, cfg)?)));
+        self.builders.insert(
+            F::NAME,
+            FilterBuilder {
+                create_source_actions: F::create_source_actions,
+                load: |session, cfg| Ok(Box::new(F::load(session, cfg)?)),
+            },
+        );
     }
 
     /// Load a serialized filter graph
@@ -44,15 +46,23 @@ impl FilterGraphFactory {
     ) -> (FilterGraph, Vec<FilterLoadError>) {
         let mut graph = FilterGraph::new();
         graph.filters.reserve(cfg.filters.len());
+        let mut builders = Vec::with_capacity(cfg.filters.len());
         let mut errors = Vec::new();
+        // Create all filter source actions first so that filters can be chained arbitrarily
         for filter in &cfg.filters {
-            let Some(&builder) = self.builders.get(&*filter.ty) else {
+            let Some(builder) = self.builders.get(&*filter.ty) else {
                 errors.push(FilterLoadError::UnknownFilter {
                     ty: filter.ty.clone(),
                 });
                 continue;
             };
-            match builder(session, filter) {
+            if let Err(e) = (builder.create_source_actions)(session, filter) {
+                errors.push(e);
+            }
+            builders.push((builder, filter));
+        }
+        for (builder, filter) in builders {
+            match (builder.load)(session, filter) {
                 Ok(filter) => {
                     graph.filters.push(filter);
                 }
@@ -61,6 +71,7 @@ impl FilterGraphFactory {
                 }
             }
         }
+        // TODO: Topological sort so chained filters get fresh data reliably
         (graph, errors)
     }
 }
@@ -128,6 +139,11 @@ pub trait Filter: Sized + 'static {
     /// name.
     const NAME: &str;
 
+    fn create_source_actions(
+        session: &mut Session,
+        config: &FilterConfig,
+    ) -> Result<(), FilterLoadError>;
+
     /// Construct from a [`FilterConfig`]
     fn load(session: &mut Session, config: &FilterConfig) -> Result<Self, FilterLoadError>;
 
@@ -151,6 +167,16 @@ impl<T: Filter> AnyFilter for T {
     fn apply(&self, seat: &mut Seat) {
         Filter::apply(self, seat)
     }
+}
+
+struct FilterBuilder {
+    create_source_actions:
+        fn(session: &mut Session, config: &FilterConfig) -> Result<(), FilterLoadError>,
+
+    load: fn(
+        session: &mut Session,
+        config: &FilterConfig,
+    ) -> Result<Box<dyn AnyFilter>, FilterLoadError>,
 }
 
 /// Reasons why a filter might not be loaded
@@ -184,21 +210,34 @@ pub struct DPad {
 impl Filter for DPad {
     const NAME: &str = "dpad";
 
-    fn load(session: &mut Session, cfg: &FilterConfig) -> Result<Self, FilterLoadError> {
+    fn create_source_actions(
+        session: &mut Session,
+        cfg: &FilterConfig,
+    ) -> Result<(), FilterLoadError> {
         if cfg.targets.len() != 1 {
             return Err(FilterLoadError::WrongOutputCount { expected: 1 });
         }
         let o = &*cfg.targets[0];
+        for dir in DPAD_DIRS {
+            session.create_action::<bool>(&format!("{o}.{dir}"));
+        }
+        Ok(())
+    }
+
+    fn load(session: &mut Session, cfg: &FilterConfig) -> Result<Self, FilterLoadError> {
+        let o = &*cfg.targets[0];
+        let [up, left, down, right] = DPAD_DIRS
+            .map(|dir| session.action::<bool>(session.action_id(&format!("{o}.{dir}")).unwrap()));
         Ok(Self {
             target: session.action(session.action_id(o).ok_or_else(|| {
                 FilterLoadError::UnknownTarget {
                     output: o.to_owned(),
                 }
             })?)?,
-            up: session.create_action(&format!("{o}.up")),
-            left: session.create_action(&format!("{o}.left")),
-            down: session.create_action(&format!("{o}.down")),
-            right: session.create_action(&format!("{o}.right")),
+            up: up?,
+            left: left?,
+            down: down?,
+            right: right?,
         })
     }
 
@@ -218,3 +257,5 @@ impl Filter for DPad {
             .unwrap();
     }
 }
+
+const DPAD_DIRS: [&str; 4] = ["up", "left", "down", "right"];
