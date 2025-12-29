@@ -1,3 +1,0 @@
-[[filters]]
-type = "dpad"
-targets = ["direction"]

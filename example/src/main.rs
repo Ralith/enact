@@ -27,8 +27,8 @@ fn run() -> Result<()> {
     let config = toml::from_str::<enact::Config>(&config).context("parsing")?;
 
     let mut bindings_factory = enact::BindingsFactory::new();
-    bindings_factory.register::<enact_winit::Input>();
-    let (bindings, errors) = bindings_factory.load(&session, &config);
+    bindings_factory.register_source::<enact_winit::Input>();
+    let (bindings, errors) = bindings_factory.load(&mut session, &config);
     for error in errors {
         eprintln!("{:?}", error);
     }
@@ -38,7 +38,6 @@ fn run() -> Result<()> {
 
     let mut app = App {
         bindings,
-        session,
         seat: enact::Seat::new(),
         window: None,
         actions,
@@ -52,32 +51,23 @@ fn run() -> Result<()> {
 }
 
 struct Actions {
-    up: Action<bool>,
-    left: Action<bool>,
-    down: Action<bool>,
-    right: Action<bool>,
+    direction: Action<mint::Vector2<f64>>,
     jump: Action<()>,
 }
 
 impl Actions {
     fn new(session: &mut enact::Session) -> Self {
-        let [up, left, down, right] = ["up", "left", "down", "right"]
-            .map(|name| session.create_action::<bool>(name).unwrap());
         Self {
-            up,
-            left,
-            down,
-            right,
+            direction: session.create_action("direction").unwrap(),
             jump: session.create_action("jump").unwrap(),
         }
     }
 
-    fn poll(&self, session: &enact::Session, seat: &enact::Seat) {
-        for action in [self.up, self.left, self.down, self.right] {
-            if seat.get(action).unwrap_or_default() {
-                println!("{}", session.action_name(action.id()));
-            }
-        }
+    fn poll(&self, seat: &enact::Seat) {
+        println!(
+            "{:1.0?}",
+            seat.get(self.direction).map_or([0.0; 2], Into::into)
+        );
         if seat.poll(self.jump).is_some() {
             println!("jump");
         }
@@ -85,7 +75,6 @@ impl Actions {
 }
 
 struct App {
-    session: enact::Session,
     bindings: enact::Bindings,
     seat: enact::Seat,
     window: Option<Arc<Window>>,
@@ -118,7 +107,8 @@ impl ApplicationHandler for App {
             StartCause::ResumeTimeReached {
                 requested_resume, ..
             } => {
-                self.actions.poll(&self.session, &self.seat);
+                self.bindings.filter(&mut self.seat);
+                self.actions.poll(&self.seat);
                 self.seat.flush();
                 event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
                     requested_resume + Duration::from_millis(100),

@@ -2,8 +2,12 @@
 type = "winit"
 
 [sources.bindings]
-up = ["W"]
-down = ["S"]
-left = ["A"]
-right = ["D"]
+"direction.up" = ["W"]
+"direction.down" = ["S"]
+"direction.left" = ["A"]
+"direction.right" = ["D"]
 jump = ["Space"]
+
+[[filters]]
+type = "dpad"
+targets = ["direction"]

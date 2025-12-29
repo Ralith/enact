@@ -400,6 +400,7 @@ dependencies = [
  "anyhow",
  "enact",
  "enact-winit",
+ "mint",
  "rustc-hash",
  "serde",
  "softbuffer",

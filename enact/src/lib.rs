@@ -19,7 +19,7 @@ pub use graph::*;
 use type_id_map::TypeIdMap;
 
 /// A collection of [`Action`] definitions
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Session {
     actions: BiHashMap<ActionDefinition, rustc_hash::FxBuildHasher>,
 }
@@ -136,6 +136,7 @@ impl fmt::Display for TypeError {
 
 impl std::error::Error for TypeError {}
 
+#[derive(Clone)]
 struct ActionDefinition {
     id: ActionId,
     name: String,
@@ -214,25 +215,40 @@ impl InputTypeVisitor for GetTypeName {
 }
 
 /// Parses bindings for arbitrary input types from serialized form
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct BindingsFactory {
-    builders: FxHashMap<
+    input_binding_builders: FxHashMap<
         String,
         (
             TypeId,
             fn(&Session, &SourceConfig) -> (Box<dyn AnyInputBindings>, Vec<LoadError>),
         ),
     >,
+    filter_builders: FxHashMap<&'static str, FilterBuilder>,
 }
 
 impl BindingsFactory {
+    /// Construct a factory with support for default filters
+    ///
+    /// Don't forget to call [`register_source`](Self::register_source) with all
+    /// desired input sources.
     pub fn new() -> Self {
-        Self::default()
+        let mut out = Self::empty();
+        out.register_filter::<DPad>();
+        out
+    }
+
+    /// Construct a factory with no default filters
+    pub fn empty() -> Self {
+        Self {
+            input_binding_builders: Default::default(),
+            filter_builders: Default::default(),
+        }
     }
 
     /// Enable loading configurations that include inputs of type `I`
-    pub fn register<I: Input>(&mut self) {
-        self.builders.insert(
+    pub fn register_source<I: Input>(&mut self) {
+        self.input_binding_builders.insert(
             I::NAME.to_string(),
             (TypeId::of::<I>(), |session, cfg| {
                 let mut bindings = FxHashMap::<I, Vec<ActionId>>::default();
@@ -262,7 +278,7 @@ impl BindingsFactory {
                             }
                         }
                         if !success {
-                            errors.push(LoadError::TypeError {
+                            errors.push(LoadError::InputTypeError {
                                 action_name: name.clone(),
                                 input: input_str.clone(),
                                 actual: session.actions.get1(&action).unwrap().ty_name,
@@ -276,20 +292,62 @@ impl BindingsFactory {
         );
     }
 
+    /// Enable loading filters of type `F`
+    pub fn register_filter<F: Filter>(&mut self) {
+        self.filter_builders.insert(
+            F::NAME,
+            FilterBuilder {
+                create_source_actions: F::create_source_actions,
+                load: |session, cfg| Ok(Box::new(F::load(session, cfg)?)),
+            },
+        );
+    }
+
     /// Load a serialized configuration
     ///
-    /// First, call [`register`](Self::register) to enable support for any
+    /// Filters defined in `config` may add new actions to `session`.
+    ///
+    /// First, call [`register_source`](Self::register_source) to enable support for any
     /// desired input sources, and create all desired actions in the
     /// [`Session`].
     ///
     /// Malformed inputs will be recorded in the returned [`LoadError`]s, but
     /// will not terminate parsing: all well-formed bindings will be included in
     /// the resulting [`Bindings`].
-    pub fn load(&self, session: &Session, config: &Config) -> (Bindings, Vec<LoadError>) {
+    pub fn load(&self, session: &mut Session, config: &Config) -> (Bindings, Vec<LoadError>) {
         let mut bindings = Bindings::new();
         let mut errors = Vec::new();
+
+        // Create all filter source actions first so that filters can be chained arbitrarily
+        let mut filter_builders = Vec::with_capacity(config.filters.len());
+        for filter in &config.filters {
+            let Some(builder) = self.filter_builders.get(&*filter.ty) else {
+                errors.push(
+                    FilterLoadError::UnknownFilter {
+                        ty: filter.ty.clone(),
+                    }
+                    .into(),
+                );
+                continue;
+            };
+            if let Err(e) = (builder.create_source_actions)(session, filter) {
+                errors.push(e.into());
+            }
+            filter_builders.push((builder, filter));
+        }
+        for (builder, filter) in filter_builders {
+            match (builder.load)(session, filter) {
+                Ok(filter) => {
+                    bindings.filters.push(filter);
+                }
+                Err(e) => {
+                    errors.push(e.into());
+                }
+            }
+        }
+
         for source in &config.sources {
-            let Some((ty, builder)) = self.builders.get(&source.ty) else {
+            let Some((ty, builder)) = self.input_binding_builders.get(&source.ty) else {
                 errors.push(LoadError::UnknownSource {
                     name: source.ty.clone(),
                 });
@@ -304,24 +362,75 @@ impl BindingsFactory {
     }
 }
 
+impl Default for BindingsFactory {
+    /// See [`new`](Self::new)
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Copy, Clone)]
+struct FilterBuilder {
+    create_source_actions:
+        fn(session: &mut Session, config: &FilterConfig) -> Result<(), FilterLoadError>,
+
+    load: fn(
+        session: &mut Session,
+        config: &FilterConfig,
+    ) -> Result<Box<dyn AnyFilter>, FilterLoadError>,
+}
+
+trait AnyFilter {
+    fn save(&self, session: &Session) -> FilterConfig;
+    fn apply(&self, seat: &mut Seat);
+    fn clone(&self) -> Box<dyn AnyFilter>;
+}
+
+impl<T: Filter> AnyFilter for T {
+    fn save(&self, session: &Session) -> FilterConfig {
+        Filter::save(self, session)
+    }
+
+    fn apply(&self, seat: &mut Seat) {
+        Filter::apply(self, seat)
+    }
+
+    fn clone(&self) -> Box<dyn AnyFilter> {
+        Box::new(Clone::clone(self))
+    }
+}
+
 /// Reasons why soem part of a [`Config`] might not be loaded
 #[derive(Debug, Clone)]
 pub enum LoadError {
     /// This type of inputs did not match any type previously supplied to
     /// [`BindingsFactory::register`]
-    UnknownSource { name: String },
+    UnknownSource {
+        name: String,
+    },
     /// The action name was not defined in the [`Session`]
-    UnknownAction { name: String },
+    UnknownAction {
+        name: String,
+    },
     /// A specific input binding was not recognized
-    UnknownInput { input: String },
+    UnknownInput {
+        input: String,
+    },
     /// A specific input binding cannot produce data of the type expected by a
     /// specific action
-    TypeError {
+    InputTypeError {
         action_name: String,
         input: String,
         actual: &'static str,
         expected: Vec<&'static str>,
     },
+    Filter(FilterLoadError),
+}
+
+impl From<FilterLoadError> for LoadError {
+    fn from(value: FilterLoadError) -> Self {
+        LoadError::Filter(value)
+    }
 }
 
 /// A mapping of inputs to actions
@@ -331,6 +440,7 @@ pub enum LoadError {
 #[derive(Default)]
 pub struct Bindings {
     actions: TypeIdMap<Box<dyn AnyInputBindings>>,
+    filters: Vec<Box<dyn AnyFilter>>,
 }
 
 impl Bindings {
@@ -350,7 +460,17 @@ impl Bindings {
                 .values()
                 .map(|value| value.save(session))
                 .collect(),
+            filters: self
+                .filters
+                .iter()
+                .map(|filter| filter.save(session))
+                .collect(),
         }
+    }
+
+    /// Add a filter to the filter graph
+    pub fn add_filter<F: Filter>(&mut self, filter: F) {
+        self.filters.push(Box::new(filter));
     }
 
     /// Introduce a new binding from `input` to `action`
@@ -412,6 +532,13 @@ impl Bindings {
         }
         Ok(())
     }
+
+    /// Apply filters to actions in `seat`
+    pub fn filter(&self, seat: &mut Seat) {
+        for filter in &self.filters {
+            filter.apply(seat);
+        }
+    }
 }
 
 impl Clone for Bindings {
@@ -421,6 +548,11 @@ impl Clone for Bindings {
                 .actions
                 .iter()
                 .map(|(&k, v)| (k, AnyInputBindings::clone(&**v)))
+                .collect(),
+            filters: self
+                .filters
+                .iter()
+                .map(|f| AnyFilter::clone(&**f))
                 .collect(),
         }
     }
@@ -482,7 +614,10 @@ impl<I: Input> Default for InputBindings<I> {
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Config {
+    #[cfg_attr(feature = "serde", serde(default))]
     pub sources: Vec<SourceConfig>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub filters: Vec<FilterConfig>,
 }
 
 /// Subset of serialized [`Bindings`] associated with a specific input source
