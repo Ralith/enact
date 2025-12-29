@@ -73,7 +73,7 @@ impl Actions {
     fn poll(&self, session: &enact::Session, seat: &enact::Seat) {
         for action in [self.up, self.left, self.down, self.right] {
             if seat.get(action).unwrap_or_default() {
-                println!("{}", session.action_name(action.id()).unwrap());
+                println!("{}", session.action_name(action.id()));
             }
         }
     }

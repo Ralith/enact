@@ -64,8 +64,8 @@ impl Session {
         Some(self.actions.get2(name)?.id)
     }
 
-    pub fn action_name(&self, id: ActionId) -> Option<&str> {
-        Some(&self.actions.get1(&id)?.name)
+    pub fn action_name(&self, id: ActionId) -> &str {
+        &self.actions.get1(&id).unwrap().name
     }
 
     pub fn check_type<I: Input>(&self, id: ActionId, input: &I) -> Result<(), TypeError> {
@@ -358,7 +358,7 @@ impl<I: Input> AnyInputBindings for InputBindings<I> {
         // Transpose
         for (input, actions) in &self.bindings {
             for &action in actions {
-                let name = session.action_name(action).unwrap();
+                let name = session.action_name(action);
                 if !bindings.contains_key(name) {
                     bindings.insert(name.to_owned(), Vec::new());
                 }
