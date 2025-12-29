@@ -159,6 +159,7 @@ keycodes! {
     KeyA => "a",
     KeyS => "s",
     KeyD => "d",
+    Space => "space",
 }
 
 /// Update action states in `seat` to account for any inputs in `event`

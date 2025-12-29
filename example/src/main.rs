@@ -56,6 +56,7 @@ struct Actions {
     left: Action<bool>,
     down: Action<bool>,
     right: Action<bool>,
+    jump: Action<()>,
 }
 
 impl Actions {
@@ -67,6 +68,7 @@ impl Actions {
             left,
             down,
             right,
+            jump: session.create_action("jump"),
         }
     }
 
@@ -75,6 +77,9 @@ impl Actions {
             if seat.get(action).unwrap_or_default() {
                 println!("{}", session.action_name(action.id()));
             }
+        }
+        if seat.poll(&self.jump).is_some() {
+            println!("jump");
         }
     }
 }
