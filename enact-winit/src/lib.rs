@@ -189,18 +189,21 @@ impl Event for WindowEvent {
                         seat,
                     )
                     .unwrap();
-                bindings
-                    .handle(&Input::PhysicalKeyPressed(event.physical_key), (), seat)
-                    .unwrap();
+                if event.state.is_pressed() {
+                    bindings
+                        .handle(&Input::PhysicalKeyPressed(event.physical_key), (), seat)
+                        .unwrap();
+                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 bindings
                     .handle(&Input::MouseButtonHeld(button), state.is_pressed(), seat)
                     .unwrap();
-
-                bindings
-                    .handle(&Input::MouseButtonPressed(button), (), seat)
-                    .unwrap();
+                if state.is_pressed() {
+                    bindings
+                        .handle(&Input::MouseButtonPressed(button), (), seat)
+                        .unwrap();
+                }
             }
             _ => {}
         }
