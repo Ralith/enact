@@ -61,14 +61,14 @@ struct Actions {
 
 impl Actions {
     fn new(session: &mut enact::Session) -> Self {
-        let [up, left, down, right] =
-            ["up", "left", "down", "right"].map(|name| session.create_action::<bool>(name));
+        let [up, left, down, right] = ["up", "left", "down", "right"]
+            .map(|name| session.create_action::<bool>(name).unwrap());
         Self {
             up,
             left,
             down,
             right,
-            jump: session.create_action("jump"),
+            jump: session.create_action("jump").unwrap(),
         }
     }
 

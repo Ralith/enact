@@ -37,7 +37,7 @@ impl Session {
     /// name. It should not be confused with localized text presented in a GUI.
     ///
     /// See [`Action`] for discussion of action design.
-    pub fn create_action<T: 'static>(&mut self, name: &str) -> Action<T> {
+    pub fn create_action<T: 'static>(&mut self, name: &str) -> Result<Action<T>, DuplicateAction> {
         let id = ActionId(u32::try_from(self.actions.len()).expect("too many actions"));
         if self
             .actions
@@ -49,12 +49,14 @@ impl Session {
             })
             .is_err()
         {
-            panic!("duplicate action: {name}");
+            return Err(DuplicateAction {
+                name: name.to_owned(),
+            });
         }
-        Action {
+        Ok(Action {
             id,
             _marker: PhantomData,
-        }
+        })
     }
 
     /// Get the a typed [`Action`] handle associated with an [`ActionId`]
@@ -104,6 +106,19 @@ impl Session {
         });
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct DuplicateAction {
+    name: String,
+}
+
+impl fmt::Display for DuplicateAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "multiple actions named: {}", self.name)
+    }
+}
+
+impl std::error::Error for DuplicateAction {}
 
 /// A mismatch between the type of an input and an action, or between the type
 /// of some data and the type described by an input.

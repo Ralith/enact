@@ -2,7 +2,7 @@ use rustc_hash::FxHashMap;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{Action, Seat, Session, TypeError};
+use crate::{Action, DuplicateAction, Seat, Session, TypeError};
 
 /// Parses arbitrary filter graph configurations from serialized form
 pub struct FilterGraphFactory {
@@ -185,12 +185,19 @@ pub enum FilterLoadError {
     UnknownFilter { ty: String },
     WrongOutputCount { expected: usize },
     UnknownTarget { output: String },
+    DuplicateSource { name: String },
     TypeError(TypeError),
 }
 
 impl From<TypeError> for FilterLoadError {
     fn from(value: TypeError) -> Self {
         FilterLoadError::TypeError(value)
+    }
+}
+
+impl From<DuplicateAction> for FilterLoadError {
+    fn from(value: DuplicateAction) -> Self {
+        FilterLoadError::DuplicateSource { name: value.name }
     }
 }
 
@@ -219,7 +226,7 @@ impl Filter for DPad {
         }
         let o = &*cfg.targets[0];
         for dir in DPAD_DIRS {
-            session.create_action::<bool>(&format!("{o}.{dir}"));
+            session.create_action::<bool>(&format!("{o}.{dir}"))?;
         }
         Ok(())
     }
