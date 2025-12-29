@@ -10,5 +10,6 @@ enact = { version = "0.1.0", path = "../enact", features = ["serde"] }
 enact-winit = { version = "0.1.0", path = "../enact-winit" }
 rustc-hash = "2.1.1"
 serde = { version = "1.0.228", default-features = false, features = ["std"] }
+softbuffer = "0.4.8"
 toml = { version = "0.9.10", default-features = false, features = ["std", "serde", "parse"] }
 winit = "0.30.12"

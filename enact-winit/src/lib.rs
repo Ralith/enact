@@ -153,7 +153,6 @@ keycodes! {
     KeyA => "a",
     KeyS => "s",
     KeyD => "d",
-    // TODO
 }
 
 pub fn handle<E: Event>(event: &E, bindings: &enact::Bindings, seat: &mut enact::Seat) {
