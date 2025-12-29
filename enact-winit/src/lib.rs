@@ -180,3 +180,14 @@ impl Event for DeviceEvent {
         }
     }
 }
+
+impl<T> Event for winit::event::Event<T> {
+    fn handle(&self, bindings: &enact::Bindings, seat: &mut enact::Seat) {
+        use winit::event::Event::*;
+        match *self {
+            WindowEvent { ref event, .. } => handle(event, bindings, seat),
+            DeviceEvent { ref event, .. } => handle(event, bindings, seat),
+            _ => {}
+        }
+    }
+}
