@@ -1,5 +1,0 @@
-[[device]]
-type = "mouse"
-
-[device.bindings]
-position = "Cursor"

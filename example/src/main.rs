@@ -18,20 +18,13 @@ fn run() -> Result<()> {
         ["up", "left", "down", "right"].map(|name| session.create_action::<()>(name));
 
     let config = fs::read_to_string("config/seat1.toml").context("reading seat1.toml")?;
-    let config =
-        toml::from_str::<BTreeMap<String, Vec<enact_winit::Input>>>(&config).context("parsing")?;
+    let config = toml::from_str::<enact::Config>(&config).context("parsing")?;
 
-    // TODO: Factor out
-    let mut bindings = enact::Bindings::default();
-    for (name, inputs) in config.into_iter() {
-        let action = session
-            .action_id(&name)
-            .ok_or_else(|| anyhow!("unknown action {name}"))?;
-        for input in inputs {
-            bindings
-                .bind(input.clone(), action, &session)
-                .with_context(|| format!("binding {input:?} to {name}"))?;
-        }
+    let mut bindings_factory = enact::BindingsFactory::new();
+    bindings_factory.register::<enact_winit::Input>();
+    let (bindings, errors) = bindings_factory.load(&session, &config);
+    for error in errors {
+        eprintln!("{:?}", error);
     }
 
     let mut app = App {

@@ -6,8 +6,4 @@ edition = "2024"
 [dependencies]
 enact = { version = "0.1.0", path = "../enact" }
 mint = "0.5.9"
-serde = { version = "1.0.228", default-features = false, features = ["std", "derive"], optional = true }
 winit = { version = "0.30.12", default-features = false, features = ["x11"] }
-
-[features]
-serde = ["dep:serde", "winit/serde"]

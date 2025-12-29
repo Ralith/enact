@@ -1,3 +1,7 @@
+[[sources]]
+type = "winit"
+
+[sources.bindings]
 up = ["W"]
 down = ["S"]
 left = ["A"]

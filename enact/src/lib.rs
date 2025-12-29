@@ -120,8 +120,19 @@ impl iddqd::BiHashItem for ActionDefinition {
 /// Identifies a unique bindable input, such as a specific button
 pub trait Input: Hash + Eq + Clone + 'static {
     const NAME: &'static str;
+
     /// Invoke `V::visit` on the type of data produced by `self` inputs
     fn visit_type<V: InputTypeVisitor>(&self) -> V::Output;
+
+    /// Enumerate all inputs that `s` could represent
+    ///
+    /// Must return at most one input of any given type
+    fn from_str(s: &str) -> Vec<Self>;
+
+    /// Generate a human-readable string identifying this input
+    ///
+    /// [`from_str`](Self::from_str) on the resulting string must include a
+    /// value equivalent to `self` in its result
     fn to_string(&self) -> String;
 }
 
@@ -151,6 +162,105 @@ impl InputTypeVisitor for GetTypeName {
     fn visit<T: 'static>() -> &'static str {
         type_name::<T>()
     }
+}
+
+#[derive(Clone, Default)]
+pub struct BindingsFactory {
+    builders: FxHashMap<
+        String,
+        (
+            TypeId,
+            fn(&Session, &SourceConfig) -> (Box<dyn AnyInputBindings>, Vec<LoadError>),
+        ),
+    >,
+}
+
+impl BindingsFactory {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register<I: Input>(&mut self) {
+        self.builders.insert(
+            I::NAME.to_string(),
+            (TypeId::of::<I>(), |session, cfg| {
+                let mut bindings = FxHashMap::<I, Vec<ActionId>>::default();
+                let mut errors = Vec::new();
+                for (name, inputs) in &cfg.bindings {
+                    let Some(action) = session.action_id(name) else {
+                        errors.push(LoadError::UnknownAction { name: name.clone() });
+                        continue;
+                    };
+                    for input_str in inputs {
+                        let inputs = I::from_str(input_str);
+                        if inputs.is_empty() {
+                            errors.push(LoadError::UnknownInput {
+                                input: input_str.clone(),
+                            });
+                            continue;
+                        }
+                        let mut expected = Vec::new();
+                        let mut success = false;
+                        for input in inputs {
+                            if let Err(error) = session.check_type(action, &input) {
+                                expected.push(error.expected);
+                            } else {
+                                bindings.entry(input).or_default().push(action);
+                                success = true;
+                                break;
+                            }
+                        }
+                        if !success {
+                            errors.push(LoadError::TypeError {
+                                action_name: name.clone(),
+                                input: input_str.clone(),
+                                actual: session.actions.get1(&action).unwrap().ty_name,
+                                expected,
+                            })
+                        }
+                    }
+                }
+                (Box::new(InputBindings { bindings }), errors)
+            }),
+        );
+    }
+
+    pub fn load(&self, session: &Session, config: &Config) -> (Bindings, Vec<LoadError>) {
+        let mut bindings = Bindings::new();
+        let mut errors = Vec::new();
+        for source in &config.sources {
+            let Some((ty, builder)) = self.builders.get(&source.ty) else {
+                errors.push(LoadError::UnknownSource {
+                    name: source.ty.clone(),
+                });
+                continue;
+            };
+            let (built, source_errors) = builder(session, source);
+            // Future work: Merge duplicates?
+            bindings.actions.insert(*ty, built);
+            errors.extend(source_errors.into_iter());
+        }
+        (bindings, errors)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum LoadError {
+    UnknownSource {
+        name: String,
+    },
+    UnknownAction {
+        name: String,
+    },
+    UnknownInput {
+        input: String,
+    },
+    TypeError {
+        action_name: String,
+        input: String,
+        actual: &'static str,
+        expected: Vec<&'static str>,
+    },
 }
 
 #[derive(Default)]
