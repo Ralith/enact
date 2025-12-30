@@ -1,7 +1,7 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::{Action, DuplicateAction, Seat, Session, TypeError};
+use crate::{Action, ActionId, DuplicateAction, Seat, Session, TypeError};
 
 /// Serialized form of a single filter's configuration
 #[derive(Debug, Clone, Default)]
@@ -31,6 +31,12 @@ pub trait Filter: Sized + 'static + Clone {
 
     /// Convert into serializable form
     fn save(&self, session: &Session) -> FilterConfig;
+
+    /// Actions that this filter reads
+    fn source_actions(&self) -> Vec<ActionId>;
+
+    /// Actions that this filter writes
+    fn target_actions(&self) -> Vec<ActionId>;
 
     /// Generate virtual inputs in `seat`
     fn apply(&self, seat: &mut Seat);
@@ -161,6 +167,17 @@ impl Filter for DPad {
             ty: Self::NAME.to_owned(),
             targets: vec![session.action_name(self.target.id()).to_owned()],
         }
+    }
+
+    fn source_actions(&self) -> Vec<ActionId> {
+        [self.up, self.left, self.down, self.right]
+            .map(|x| x.id())
+            .into_iter()
+            .collect()
+    }
+
+    fn target_actions(&self) -> Vec<ActionId> {
+        vec![self.target.id()]
     }
 
     fn apply(&self, seat: &mut Seat) {

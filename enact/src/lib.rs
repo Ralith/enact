@@ -338,7 +338,7 @@ impl BindingsFactory {
         for (builder, filter) in filter_builders {
             match (builder.load)(session, filter) {
                 Ok(filter) => {
-                    bindings.filters.push(filter);
+                    bindings.add_any_filter(filter);
                 }
                 Err(e) => {
                     errors.push(e.into());
@@ -382,6 +382,8 @@ trait AnyFilter {
     fn save(&self, session: &Session) -> FilterConfig;
     fn apply(&self, seat: &mut Seat);
     fn clone(&self) -> Box<dyn AnyFilter>;
+    fn source_actions(&self) -> Vec<ActionId>;
+    fn target_actions(&self) -> Vec<ActionId>;
 }
 
 impl<T: Filter> AnyFilter for T {
@@ -395,6 +397,14 @@ impl<T: Filter> AnyFilter for T {
 
     fn clone(&self) -> Box<dyn AnyFilter> {
         Box::new(Clone::clone(self))
+    }
+
+    fn source_actions(&self) -> Vec<ActionId> {
+        Filter::source_actions(self)
+    }
+
+    fn target_actions(&self) -> Vec<ActionId> {
+        Filter::target_actions(self)
     }
 }
 
@@ -439,6 +449,8 @@ impl From<FilterLoadError> for LoadError {
 pub struct Bindings {
     actions: TypeIdMap<Box<dyn AnyInputBindings>>,
     filters: Vec<Box<dyn AnyFilter>>,
+    /// Maps actions to the index in `filters` of the filter that consumes them
+    filter_source_actions: FxHashMap<ActionId, usize>,
 }
 
 impl Bindings {
@@ -468,7 +480,18 @@ impl Bindings {
 
     /// Add a filter to the filter graph
     pub fn add_filter<F: Filter>(&mut self, filter: F) {
-        self.filters.push(Box::new(filter));
+        self.add_any_filter(Box::new(filter));
+    }
+
+    fn add_any_filter(&mut self, filter: Box<dyn AnyFilter>) {
+        // Should we support multiple filters reading from the same action?
+        self.filter_source_actions.extend(
+            filter
+                .source_actions()
+                .into_iter()
+                .map(|x| (x, self.filters.len())),
+        );
+        self.filters.push(filter);
     }
 
     /// Introduce a new binding from `input` to `action`
@@ -527,14 +550,21 @@ impl Bindings {
         for &action in bindings {
             // Guaranteed to succeed because we check types at bind time
             seat.push(action, data.clone()).unwrap();
+            self.propagate(action, seat);
         }
         Ok(())
     }
 
-    /// Apply filters to actions in `seat`
-    pub fn filter(&self, seat: &mut Seat) {
-        for filter in &self.filters {
+    /// Update actions populated from filters dependent on `action` in `seat`
+    fn propagate(&self, action: ActionId, seat: &mut Seat) {
+        let mut dirty = vec![action];
+        while let Some(action) = dirty.pop() {
+            let Some(&filter) = self.filter_source_actions.get(&action) else {
+                continue;
+            };
+            let filter = &self.filters[filter];
             filter.apply(seat);
+            dirty.extend(filter.target_actions())
         }
     }
 }
@@ -552,6 +582,7 @@ impl Clone for Bindings {
                 .iter()
                 .map(|f| AnyFilter::clone(&**f))
                 .collect(),
+            filter_source_actions: self.filter_source_actions.clone(),
         }
     }
 }

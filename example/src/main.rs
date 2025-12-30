@@ -107,7 +107,6 @@ impl ApplicationHandler for App {
             StartCause::ResumeTimeReached {
                 requested_resume, ..
             } => {
-                self.bindings.filter(&mut self.seat);
                 self.actions.poll(&self.seat);
                 self.seat.flush();
                 event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
