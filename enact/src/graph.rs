@@ -17,7 +17,7 @@ pub trait Filter: Sized + 'static + Clone {
     /// A globally unique human-readable identifier for this type of filter
     ///
     /// Used in [`FilterConfig`] to identify each filter type. A single
-    /// [`FilterGraphFactory`] cannot support multiple input types with the same
+    /// [`BindingsFactory`](crate::BindingsFactory) cannot support multiple filter types with the same
     /// name.
     const NAME: &str;
 

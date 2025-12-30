@@ -414,7 +414,7 @@ impl<T: Filter> AnyFilter for T {
 #[derive(Debug, Clone)]
 pub enum LoadError {
     /// This type of inputs did not match any type previously supplied to
-    /// [`BindingsFactory::register`]
+    /// [`BindingsFactory::register_source`]
     UnknownSource {
         name: String,
     },
