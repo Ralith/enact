@@ -2,10 +2,10 @@
 type = "winit"
 
 [sources.bindings]
-"direction.up" = ["W"]
-"direction.down" = ["S"]
-"direction.left" = ["A"]
-"direction.right" = ["D"]
+direction-up = ["W"]
+direction-down = ["S"]
+direction-left = ["A"]
+direction-right = ["D"]
 jump = ["Space"]
 
 [[filters]]

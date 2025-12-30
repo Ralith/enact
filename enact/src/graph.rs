@@ -73,7 +73,7 @@ impl From<DuplicateAction> for FilterLoadError {
 
 /// Converts four directional inputs into a single [`mint::Vector2<f64>`]
 ///
-/// Source action names are derived by suffixing `.up`/`.left`/`.down`/`.right`
+/// Source action names are derived by suffixing `-up`/`-left`/`-down`/`-right`
 /// to the target action name
 #[derive(Clone)]
 pub struct DPad {
@@ -92,7 +92,7 @@ impl DPad {
     ) -> Result<Self, DuplicateAction> {
         let [up, left, down, right] = DPAD_DIRS.map(|dir| {
             let o = session.action_name(target.id());
-            session.create_action(&format!("{o}.{dir}"))
+            session.create_action(&format!("{o}-{dir}"))
         });
 
         Ok(Self {
@@ -130,7 +130,7 @@ impl Filter for DPad {
         }
         let o = &*cfg.targets[0];
         for dir in DPAD_DIRS {
-            session.create_action::<bool>(&format!("{o}.{dir}"))?;
+            session.create_action::<bool>(&format!("{o}-{dir}"))?;
         }
         Ok(())
     }
@@ -139,7 +139,7 @@ impl Filter for DPad {
         let o = &*cfg.targets[0];
         let [up, left, down, right] = DPAD_DIRS.map(|dir| {
             session
-                .action::<bool>(session.action_id(&format!("{o}.{dir}")).unwrap())
+                .action::<bool>(session.action_id(&format!("{o}-{dir}")).unwrap())
                 .unwrap()
         });
         Ok(Self {
