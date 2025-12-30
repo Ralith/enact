@@ -27,7 +27,7 @@ pub trait Filter: Sized + 'static + Clone {
     ) -> Result<(), FilterLoadError>;
 
     /// Construct from a [`FilterConfig`]
-    fn load(session: &mut Session, config: &FilterConfig) -> Result<Self, FilterLoadError>;
+    fn load(session: &Session, config: &FilterConfig) -> Result<Self, FilterLoadError>;
 
     /// Convert into serializable form
     fn save(&self, session: &Session) -> FilterConfig;
@@ -128,7 +128,7 @@ impl Filter for DPad {
         Ok(())
     }
 
-    fn load(session: &mut Session, cfg: &FilterConfig) -> Result<Self, FilterLoadError> {
+    fn load(session: &Session, cfg: &FilterConfig) -> Result<Self, FilterLoadError> {
         let o = &*cfg.targets[0];
         let [up, left, down, right] = DPAD_DIRS.map(|dir| {
             session

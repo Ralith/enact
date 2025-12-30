@@ -374,10 +374,8 @@ struct FilterBuilder {
     create_source_actions:
         fn(session: &mut Session, config: &FilterConfig) -> Result<(), FilterLoadError>,
 
-    load: fn(
-        session: &mut Session,
-        config: &FilterConfig,
-    ) -> Result<Box<dyn AnyFilter>, FilterLoadError>,
+    load:
+        fn(session: &Session, config: &FilterConfig) -> Result<Box<dyn AnyFilter>, FilterLoadError>,
 }
 
 trait AnyFilter {
