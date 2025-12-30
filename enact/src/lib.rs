@@ -218,7 +218,7 @@ impl InputTypeVisitor for GetTypeName {
 #[derive(Clone)]
 pub struct BindingsFactory {
     input_binding_builders: FxHashMap<
-        String,
+        &'static str,
         (
             TypeId,
             fn(&Session, &SourceConfig) -> (Box<dyn AnyInputBindings>, Vec<LoadError>),
@@ -249,7 +249,7 @@ impl BindingsFactory {
     /// Enable loading configurations that include inputs of type `I`
     pub fn register_source<I: Input>(&mut self) {
         self.input_binding_builders.insert(
-            I::NAME.to_string(),
+            I::NAME,
             (TypeId::of::<I>(), |session, cfg| {
                 let mut bindings = FxHashMap::<I, Vec<ActionId>>::default();
                 let mut errors = Vec::new();
@@ -349,7 +349,7 @@ impl BindingsFactory {
         }
 
         for source in &config.sources {
-            let Some((ty, builder)) = self.input_binding_builders.get(&source.ty) else {
+            let Some((ty, builder)) = self.input_binding_builders.get(&*source.ty) else {
                 errors.push(LoadError::UnknownSource {
                     name: source.ty.clone(),
                 });
