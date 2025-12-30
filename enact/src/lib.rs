@@ -706,9 +706,15 @@ impl<I: Input> Default for InputBindings<I> {
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Config {
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(skip_serializing_if = "Vec::is_empty", default)
+    )]
     pub sources: Vec<SourceConfig>,
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(skip_serializing_if = "Vec::is_empty", default)
+    )]
     pub filters: Vec<FilterConfig>,
 }
 
