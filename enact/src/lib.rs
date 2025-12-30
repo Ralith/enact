@@ -23,6 +23,7 @@ use iddqd::BiHashMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use slab::Slab;
 
 use type_id_map::TypeIdMap;
 
@@ -524,9 +525,9 @@ impl From<DuplicateAction> for FilterLoadError {
 #[derive(Default)]
 pub struct Bindings {
     actions: TypeIdMap<Box<dyn AnyInputBindings>>,
-    filters: Vec<Box<dyn AnyFilter>>,
+    filters: Slab<Box<dyn AnyFilter>>,
     /// Maps actions to the index in `filters` of the filter that consumes them
-    filter_source_actions: FxHashMap<ActionId, usize>,
+    filter_source_actions: FxHashMap<ActionId, FilterId>,
 }
 
 impl Bindings {
@@ -549,17 +550,17 @@ impl Bindings {
             filters: self
                 .filters
                 .iter()
-                .map(|filter| filter.save(session))
+                .map(|(_, filter)| filter.save(session))
                 .collect(),
         }
     }
 
     /// Add a filter to the filter graph
-    pub fn add_filter<F: Filter>(&mut self, filter: F) -> Result<(), FilterCycle> {
+    pub fn add_filter<F: Filter>(&mut self, filter: F) -> Result<FilterId, FilterCycle> {
         self.add_any_filter(Box::new(filter))
     }
 
-    fn add_any_filter(&mut self, filter: Box<dyn AnyFilter>) -> Result<(), FilterCycle> {
+    fn add_any_filter(&mut self, filter: Box<dyn AnyFilter>) -> Result<FilterId, FilterCycle> {
         // This makes repeated calls to `add_filter` something like quadratic in
         // the length of the longest path through the filter graph. Don't make
         // huge filter graphs.
@@ -567,14 +568,11 @@ impl Bindings {
             return Err(FilterCycle);
         }
         // Should we support multiple filters reading from the same action?
-        self.filter_source_actions.extend(
-            filter
-                .source_actions()
-                .into_iter()
-                .map(|x| (x, self.filters.len())),
-        );
-        self.filters.push(filter);
-        Ok(())
+        let id = FilterId(u32::try_from(self.filters.vacant_key()).expect("too many filters"));
+        self.filter_source_actions
+            .extend(filter.source_actions().into_iter().map(|x| (x, id)));
+        self.filters.insert(filter);
+        Ok(id)
     }
 
     fn would_introduce_cycle(&self, filter: &dyn AnyFilter) -> bool {
@@ -704,7 +702,7 @@ impl Bindings {
             let Some(&filter) = self.filter_source_actions.get(&action) else {
                 continue;
             };
-            let filter = &self.filters[filter];
+            let filter = &self.filters[filter.0 as usize];
             filter.apply(seat);
             dirty.extend(filter.target_actions())
         }
@@ -722,7 +720,7 @@ impl Clone for Bindings {
             filters: self
                 .filters
                 .iter()
-                .map(|f| AnyFilter::clone(&**f))
+                .map(|(i, f)| (i, AnyFilter::clone(&**f)))
                 .collect(),
             filter_source_actions: self.filter_source_actions.clone(),
         }
@@ -730,13 +728,16 @@ impl Clone for Bindings {
 }
 
 struct CycleChecker<'a> {
-    edges: &'a FxHashMap<ActionId, usize>,
-    filters: &'a [Box<dyn AnyFilter>],
+    edges: &'a FxHashMap<ActionId, FilterId>,
+    filters: &'a Slab<Box<dyn AnyFilter>>,
     visited: FxHashSet<ActionId>,
 }
 
 impl<'a> CycleChecker<'a> {
-    fn new(edges: &'a FxHashMap<ActionId, usize>, filters: &'a [Box<dyn AnyFilter>]) -> Self {
+    fn new(
+        edges: &'a FxHashMap<ActionId, FilterId>,
+        filters: &'a Slab<Box<dyn AnyFilter>>,
+    ) -> Self {
         Self {
             edges,
             filters,
@@ -751,7 +752,7 @@ impl<'a> CycleChecker<'a> {
         let Some(&i) = self.edges.get(&action) else {
             return;
         };
-        for next in self.filters[i].target_actions() {
+        for next in self.filters[i.0 as usize].target_actions() {
             self.visit(next);
         }
     }
@@ -1017,3 +1018,8 @@ impl<T> Clone for Action<T> {
 // TODO: Nonzero
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ActionId(u32);
+
+/// Untyped handle to a [`Filter`] in some [`Bindings`]
+// TODO: Nonzero
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct FilterId(u32);

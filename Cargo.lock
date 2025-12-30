@@ -366,6 +366,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde-tuple-vec-map",
+ "slab",
 ]
 
 [[package]]
