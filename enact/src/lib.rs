@@ -7,7 +7,7 @@ use std::{
     sync::RwLock,
 };
 
-mod graph;
+pub mod filter;
 mod type_id_map;
 
 use iddqd::BiHashMap;
@@ -15,7 +15,6 @@ use rustc_hash::{FxHashMap, FxHashSet};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-pub use graph::*;
 use type_id_map::TypeIdMap;
 
 /// A collection of [`Action`] definitions
@@ -227,6 +226,36 @@ pub struct BindingsFactory {
     filter_builders: FxHashMap<&'static str, FilterBuilder>,
 }
 
+/// A mechanism to compute virtual inputs
+pub trait Filter: Sized + 'static + Clone {
+    /// A globally unique human-readable identifier for this type of filter
+    ///
+    /// Used in [`FilterConfig`] to identify each filter type. A single
+    /// [`BindingsFactory`] cannot support multiple filter types with the same
+    /// name.
+    const NAME: &str;
+
+    fn create_source_actions(
+        session: &mut Session,
+        config: &FilterConfig,
+    ) -> Result<(), FilterLoadError>;
+
+    /// Construct from a [`FilterConfig`]
+    fn load(session: &Session, config: &FilterConfig) -> Result<Self, FilterLoadError>;
+
+    /// Convert into serializable form
+    fn save(&self, session: &Session) -> FilterConfig;
+
+    /// Actions that this filter reads
+    fn source_actions(&self) -> Vec<ActionId>;
+
+    /// Actions that this filter writes
+    fn target_actions(&self) -> Vec<ActionId>;
+
+    /// Generate virtual inputs in `seat`
+    fn apply(&self, seat: &mut Seat);
+}
+
 impl BindingsFactory {
     /// Construct a factory with support for default filters
     ///
@@ -234,7 +263,7 @@ impl BindingsFactory {
     /// desired input sources.
     pub fn new() -> Self {
         let mut out = Self::empty();
-        out.register_filter::<DPad>();
+        out.register_filter::<filter::DPad>();
         out
     }
 
@@ -446,6 +475,35 @@ impl From<FilterLoadError> for LoadError {
 impl From<FilterCycle> for LoadError {
     fn from(FilterCycle: FilterCycle) -> Self {
         LoadError::Filter(FilterLoadError::Cycle)
+    }
+}
+
+/// Reasons why a filter might not be loaded
+#[derive(Debug, Clone)]
+pub enum FilterLoadError {
+    UnknownFilter {
+        ty: String,
+    },
+    WrongOutputCount {
+        expected: usize,
+    },
+    UnknownTarget {
+        output: String,
+    },
+    DuplicateSource {
+        name: String,
+    },
+    TypeError {
+        filter_ty: String,
+        action: String,
+        error: TypeError,
+    },
+    Cycle,
+}
+
+impl From<DuplicateAction> for FilterLoadError {
+    fn from(value: DuplicateAction) -> Self {
+        FilterLoadError::DuplicateSource { name: value.name }
     }
 }
 
@@ -729,6 +787,15 @@ pub struct SourceConfig {
     /// Maps action names to inputs from this input source
     #[cfg_attr(feature = "serde", serde(with = "tuple_vec_map"))]
     pub bindings: Vec<(String, Vec<String>)>,
+}
+
+/// Serialized form of a single filter's configuration
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct FilterConfig {
+    #[cfg_attr(feature = "serde", serde(rename = "type"))]
+    pub ty: String,
+    pub targets: Vec<String>,
 }
 
 /// Represents the current state and recent history of any active [`Action`]s
