@@ -1,3 +1,12 @@
+//! enact allows applications to decouple abstract actions from the physical
+//! input that triggers or controls them. For example, game logic could consume
+//! a "direction" vector to control movement wihout caring whether it's derived
+//! from key presses, a D-pad, or a joystick.
+//!
+//! Different input sources can be added without modifying the core library, and
+//! bindings covering any number of input sources can be saved to and loaded
+//! from config files and updated on the fly.
+
 use std::{
     any::{Any, TypeId, type_name},
     collections::VecDeque,
@@ -106,6 +115,7 @@ impl Session {
     }
 }
 
+/// Error indicating that two actions would have the same name
 #[derive(Debug, Clone)]
 pub struct DuplicateAction {
     name: String,
@@ -705,6 +715,7 @@ impl<'a> CycleChecker<'a> {
     }
 }
 
+/// Error indicating that a filter would create a feedback loop
 #[derive(Debug, Copy, Clone)]
 pub struct FilterCycle;
 
