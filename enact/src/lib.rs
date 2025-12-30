@@ -612,6 +612,52 @@ impl Bindings {
         Ok(())
     }
 
+    /// Enumerate all actions triggered by `input`
+    pub fn bindings_for<I: Input>(&self, input: &I) -> Vec<ActionId> {
+        let Some(bindings) = self.actions.get(&TypeId::of::<I>()) else {
+            return Vec::new();
+        };
+        let bindings = (&**bindings as &dyn Any)
+            .downcast_ref::<InputBindings<I>>()
+            .unwrap();
+        bindings.bindings.get(input).cloned().unwrap_or_default()
+    }
+
+    /// Unbind `input` from `action`
+    ///
+    /// Returns whether `input` was bound to `action`
+    pub fn unbind<I: Input>(&mut self, input: &I, action: ActionId) -> bool {
+        let bindings = self
+            .actions
+            .entry(TypeId::of::<I>())
+            .or_insert_with(|| Box::new(InputBindings::<I>::default()));
+        let bindings = (&mut **bindings as &mut dyn Any)
+            .downcast_mut::<InputBindings<I>>()
+            .unwrap();
+        let Some(actions) = bindings.bindings.get_mut(input) else {
+            return false;
+        };
+        let Some(i) = actions.iter().position(|&a| a == action) else {
+            return false;
+        };
+        actions.swap_remove(i);
+        true
+    }
+
+    /// Unbind `input` from all actions
+    ///
+    /// Returns whether `input` was bound to any actions
+    pub fn unbind_all<I: Input>(&mut self, input: &I) -> bool {
+        let bindings = self
+            .actions
+            .entry(TypeId::of::<I>())
+            .or_insert_with(|| Box::new(InputBindings::<I>::default()));
+        let bindings = (&mut **bindings as &mut dyn Any)
+            .downcast_mut::<InputBindings<I>>()
+            .unwrap();
+        bindings.bindings.remove(input).is_some()
+    }
+
     /// Change the state of `input` to `data` in `seat`
     ///
     /// Most applications do not need to call this directly. Instead, call the
