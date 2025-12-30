@@ -11,7 +11,7 @@ mod graph;
 mod type_id_map;
 
 use iddqd::BiHashMap;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -338,7 +338,9 @@ impl BindingsFactory {
         for (builder, filter) in filter_builders {
             match (builder.load)(session, filter) {
                 Ok(filter) => {
-                    bindings.add_any_filter(filter);
+                    if let Err(e) = bindings.add_any_filter(filter) {
+                        errors.push(e.into());
+                    }
                 }
                 Err(e) => {
                     errors.push(e.into());
@@ -441,6 +443,12 @@ impl From<FilterLoadError> for LoadError {
     }
 }
 
+impl From<FilterCycle> for LoadError {
+    fn from(FilterCycle: FilterCycle) -> Self {
+        LoadError::Filter(FilterLoadError::Cycle)
+    }
+}
+
 /// A mapping of inputs to actions
 ///
 /// [`Bindings`] are always defined with respect to the actions defined in a
@@ -479,11 +487,17 @@ impl Bindings {
     }
 
     /// Add a filter to the filter graph
-    pub fn add_filter<F: Filter>(&mut self, filter: F) {
-        self.add_any_filter(Box::new(filter));
+    pub fn add_filter<F: Filter>(&mut self, filter: F) -> Result<(), FilterCycle> {
+        self.add_any_filter(Box::new(filter))
     }
 
-    fn add_any_filter(&mut self, filter: Box<dyn AnyFilter>) {
+    fn add_any_filter(&mut self, filter: Box<dyn AnyFilter>) -> Result<(), FilterCycle> {
+        // This makes repeated calls to `add_filter` something like quadratic in
+        // the length of the longest path through the filter graph. Don't make
+        // huge filter graphs.
+        if self.would_introduce_cycle(&*filter) {
+            return Err(FilterCycle);
+        }
         // Should we support multiple filters reading from the same action?
         self.filter_source_actions.extend(
             filter
@@ -492,6 +506,20 @@ impl Bindings {
                 .map(|x| (x, self.filters.len())),
         );
         self.filters.push(filter);
+        Ok(())
+    }
+
+    fn would_introduce_cycle(&self, filter: &dyn AnyFilter) -> bool {
+        let mut checker = CycleChecker::new(&self.filter_source_actions, &self.filters);
+        for target in filter.target_actions() {
+            checker.visit(target);
+        }
+        for source in filter.source_actions() {
+            if checker.is_visited(source) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Introduce a new binding from `input` to `action`
@@ -586,6 +614,41 @@ impl Clone for Bindings {
         }
     }
 }
+
+struct CycleChecker<'a> {
+    edges: &'a FxHashMap<ActionId, usize>,
+    filters: &'a [Box<dyn AnyFilter>],
+    visited: FxHashSet<ActionId>,
+}
+
+impl<'a> CycleChecker<'a> {
+    fn new(edges: &'a FxHashMap<ActionId, usize>, filters: &'a [Box<dyn AnyFilter>]) -> Self {
+        Self {
+            edges,
+            filters,
+            visited: FxHashSet::default(),
+        }
+    }
+
+    fn visit(&mut self, action: ActionId) {
+        if !self.visited.insert(action) {
+            return;
+        }
+        let Some(&i) = self.edges.get(&action) else {
+            return;
+        };
+        for next in self.filters[i].target_actions() {
+            self.visit(next);
+        }
+    }
+
+    fn is_visited(&self, action: ActionId) -> bool {
+        self.visited.contains(&action)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct FilterCycle;
 
 trait AnyInputBindings: Any {
     fn save(&self, session: &Session) -> SourceConfig;

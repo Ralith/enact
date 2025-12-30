@@ -62,6 +62,7 @@ pub enum FilterLoadError {
         action: String,
         error: TypeError,
     },
+    Cycle,
 }
 
 impl From<DuplicateAction> for FilterLoadError {
