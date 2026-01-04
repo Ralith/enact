@@ -636,6 +636,21 @@ impl Bindings {
         Ok(())
     }
 
+    /// Enumerate all actions triggered by any input of type `I`
+    pub fn bindings_for_any<I: Input>(&self) -> Vec<(I, Vec<ActionId>)> {
+        let Some(bindings) = self.actions.get(&TypeId::of::<I>()) else {
+            return Vec::new();
+        };
+        let bindings = (&**bindings as &dyn Any)
+            .downcast_ref::<InputBindings<I>>()
+            .unwrap();
+        bindings
+            .bindings
+            .iter()
+            .map(|(i, acts)| (i.clone(), acts.clone()))
+            .collect()
+    }
+
     /// Enumerate all actions triggered by `input`
     pub fn bindings_for<I: Input>(&self, input: &I) -> Vec<ActionId> {
         let Some(bindings) = self.actions.get(&TypeId::of::<I>()) else {
