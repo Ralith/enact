@@ -421,6 +421,7 @@ struct FilterBuilder {
 }
 
 trait AnyFilter {
+    fn ty(&self) -> &str;
     fn save(&self, session: &Session) -> FilterConfig;
     fn apply(&self, seat: &mut Seat);
     fn clone(&self) -> Box<dyn AnyFilter>;
@@ -429,6 +430,10 @@ trait AnyFilter {
 }
 
 impl<T: Filter> AnyFilter for T {
+    fn ty(&self) -> &str {
+        T::NAME
+    }
+
     fn save(&self, session: &Session) -> FilterConfig {
         Filter::save(self, session)
     }
@@ -586,6 +591,27 @@ impl Bindings {
             }
         }
         false
+    }
+
+    /// Look up the filter that consumes `action`, if any
+    pub fn filter(&self, action: ActionId) -> Option<FilterId> {
+        self.filter_source_actions.get(&action).copied()
+    }
+
+    /// Look up the type name of a filter
+    pub fn filter_ty(&self, filter: FilterId) -> &str {
+        self.filters.get(filter.0 as usize).unwrap().ty()
+    }
+
+    /// Remove `filter`
+    ///
+    /// This will leave any bindings for source actions for the removed filter
+    /// dangling.
+    pub fn remove_filter(&mut self, filter: FilterId) {
+        let filter = self.filters.remove(filter.0 as usize);
+        for action in filter.source_actions() {
+            self.filter_source_actions.remove(&action);
+        }
     }
 
     /// Introduce a new binding from `input` to `action`
